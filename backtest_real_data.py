@@ -4,6 +4,7 @@ import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import os
+from datetime import datetime
 
 OUTPUT_DIR = os.path.dirname(os.path.abspath(__file__))
 
@@ -14,6 +15,7 @@ def download_or_load_data(ticker="GC=F", period="1mo", interval="1h", csv_path=N
     """
     Tente de télécharger de vraies données depuis Yahoo Finance.
     En cas d'échec (ex. pas d'internet dans le sandbox), charge un fichier CSV.
+    Retourne un tuple (DataFrame, meta) où meta décrit la source des données utilisée.
     """
     if csv_path and os.path.exists(csv_path):
         print(f"Chargement des données depuis le fichier CSV : {csv_path}")
@@ -21,7 +23,8 @@ def download_or_load_data(ticker="GC=F", period="1mo", interval="1h", csv_path=N
         # S'assurer que les colonnes sont au bon format
         df['time'] = pd.to_datetime(df.iloc[:, 0])
         df.columns = [col.lower() for col in df.columns]
-        return df
+        meta = {'source': 'csv', 'source_detail': csv_path, 'ticker': ticker, 'period': period, 'interval': interval}
+        return df, meta
 
     try:
         import yfinance as yf
@@ -35,7 +38,8 @@ def download_or_load_data(ticker="GC=F", period="1mo", interval="1h", csv_path=N
         data.columns = [col[0].lower() if isinstance(col, tuple) else col.lower() for col in data.columns]
         data = data.rename(columns={'date': 'time', 'datetime': 'time', 'index': 'time'})
         print(f"Téléchargement réussi ! {len(data)} bougies récupérées.")
-        return data
+        meta = {'source': 'yahoo_live', 'source_detail': 'Yahoo Finance (yfinance)', 'ticker': ticker, 'period': period, 'interval': interval}
+        return data, meta
     except Exception as e:
         print(f"Impossible de télécharger les données en direct ({e}).")
         # Fallback sur un fichier mock si on est dans le sandbox
@@ -44,7 +48,8 @@ def download_or_load_data(ticker="GC=F", period="1mo", interval="1h", csv_path=N
             print("Utilisation du fichier de simulation local.")
             df = pd.read_csv(fallback_path)
             df['time'] = pd.to_datetime(df['time'])
-            return df
+            meta = {'source': 'csv_fallback', 'source_detail': fallback_path, 'ticker': ticker, 'period': period, 'interval': interval}
+            return df, meta
         else:
             raise FileNotFoundError("Aucune source de données disponible.")
 
@@ -248,13 +253,14 @@ def plot_and_save_results(df, trades, filename="backtest_real_performance.png"):
 
 def analyze_performance(df, trades, initial_capital=10000.0):
     """
-    Calcule des indicateurs de performance avancés et affiche une interprétation
-    textuelle de la stratégie (win rate, profit factor, drawdown, expectancy...).
+    Calcule des indicateurs de performance avancés, affiche une interprétation
+    textuelle de la stratégie (win rate, profit factor, drawdown, expectancy...)
+    et retourne les statistiques calculées.
     """
     total = len(trades)
     if total == 0:
         print("\nAucun trade exécuté : aucune analyse de performance possible.")
-        return
+        return {'total': 0}
 
     wins = [t['profit'] for t in trades if t['result'] == 'WIN']
     losses = [t['profit'] for t in trades if t['result'] == 'LOSS']
@@ -277,6 +283,13 @@ def analyze_performance(df, trades, initial_capital=10000.0):
     final_capital = df['capital'].iloc[-1]
     net_profit = final_capital - initial_capital
     net_profit_pct = net_profit / initial_capital * 100
+
+    stats = {
+        'total': total, 'wins': len(wins), 'losses': len(losses), 'bes': len(bes),
+        'win_rate': win_rate, 'profit_factor': profit_factor, 'avg_win': avg_win,
+        'avg_loss': avg_loss, 'expectancy': expectancy, 'max_drawdown': max_drawdown,
+        'net_profit': net_profit, 'net_profit_pct': net_profit_pct,
+    }
 
     print("\n=== Analyse de performance ===")
     print(f"Trades totaux        : {total} (WIN: {len(wins)}, LOSS: {len(losses)}, BE: {len(bes)})")
@@ -307,6 +320,69 @@ def analyze_performance(df, trades, initial_capital=10000.0):
         print("- Drawdown maîtrisé sur la période testée.")
 
     print("- Ces résultats portent sur un échantillon limité (7 jours en 1 minute) : à confirmer sur une période plus longue avant toute conclusion définitive.")
+    return stats
+
+def generate_execution_log(meta, trades, stats, log_filename=None):
+    """
+    Génère un journal d'exécution détaillant, pour ce run, les 3 étapes de la
+    stratégie : téléchargement des données, analyse structurelle/technique,
+    et exécution/protection des trades (avec l'historique complet des trades).
+    """
+    timestamp = datetime.now()
+    if log_filename is None:
+        log_filename = f"journal_execution_{timestamp:%Y%m%d_%H%M%S}.log"
+    log_path = os.path.join(OUTPUT_DIR, log_filename)
+
+    source_labels = {
+        'yahoo_live': "Yahoo Finance (yfinance) — téléchargement en direct",
+        'csv': f"Fichier CSV local ({meta.get('source_detail')})",
+        'csv_fallback': f"Fichier CSV de secours ({meta.get('source_detail')}) — téléchargement en direct indisponible",
+    }
+
+    lines = []
+    lines.append("=== JOURNAL D'EXÉCUTION DU BACKTEST FIBONACCI OTE ===")
+    lines.append(f"Date d'exécution : {timestamp:%Y-%m-%d %H:%M:%S}")
+
+    lines.append("\n--- 1. Téléchargement automatique en direct ---")
+    lines.append(f"Source des données : {source_labels.get(meta['source'], meta['source'])}")
+    lines.append(f"Actif               : {meta['ticker']}")
+    lines.append(f"Période / Unité de temps : {meta['period']} / {meta['interval']}")
+    lines.append(f"Bougies récupérées  : {meta['n_candles']}")
+
+    lines.append("\n--- 2. Analyse structurelle et technique ---")
+    lines.append("Indicateur de tendance : EMA 200 sur le cours de clôture (biais haussier si close > EMA200, baissier sinon).")
+    lines.append(f"Détection des points pivots : Swing Highs / Swing Lows sur une fenêtre glissante de {meta.get('window', 20)} bougies.")
+    lines.append("Tracé Fibonacci : zone d'entrée optimale (OTE) au retracement de 62 % du dernier mouvement impulsif identifié.")
+    lines.append(f"Opportunités validées et exécutées : {stats.get('total', 0)}")
+
+    lines.append("\n--- 3. Exécution et protection ---")
+    lines.append("Règles appliquées : entrée sur retracement dans la zone OTE (0.62), Stop Loss strict au dernier plus bas/haut (+ filtre de 2 %),")
+    lines.append("Take Profit au ratio risque/rendement 1:2, sécurisation à Break Even (BE) dès que la structure de marché est cassée (BOS).")
+    lines.append("\nDétail des trades :")
+    if trades:
+        for idx, t in enumerate(trades, start=1):
+            be_str = "Oui" if t['be_triggered'] else "Non"
+            lines.append(
+                f"#{idx:03d} {t['type']:<4} | entrée {t['entry_time']} @ {t['entry_price']:.2f} "
+                f"| SL {t['sl']:.2f} | TP {t['tp']:.2f} | BOS {t['bos']:.2f} | BE déclenché : {be_str} "
+                f"| sortie {t['exit_time']} @ {t['exit_price']:.2f} | résultat {t['result']} | P&L {t['profit']:+.2f} €"
+            )
+    else:
+        lines.append("Aucun trade exécuté durant cette période.")
+
+    if stats.get('total', 0) > 0:
+        lines.append("\n--- Résumé de performance ---")
+        lines.append(f"Win rate      : {stats['win_rate']:.1f}% (WIN: {stats['wins']}, LOSS: {stats['losses']}, BE: {stats['bes']})")
+        lines.append(f"Profit factor : {stats['profit_factor']:.2f}")
+        lines.append(f"Espérance par trade : {stats['expectancy']:.2f} €")
+        lines.append(f"Drawdown maximum    : {stats['max_drawdown']:.2f}%")
+        lines.append(f"Profit net          : {stats['net_profit']:+.2f} € ({stats['net_profit_pct']:+.2f}%)")
+
+    with open(log_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+
+    print(f"Journal d'exécution sauvegardé sous : {log_path}")
+    return log_path
 
 if __name__ == "__main__":
     # Test avec le fichier CSV de simulation
@@ -314,10 +390,14 @@ if __name__ == "__main__":
     try:
         # Essayer de lancer le backtest (utilise yfinance en local ou le CSV en fallback)
         # Yahoo Finance limite l'historique en 1 minute aux 7 derniers jours
-        data = download_or_load_data(ticker="GC=F", period="7d", interval="1m", csv_path=csv_fallback)
-        trades, df_result = run_fibonacci_backtest(data)
+        window = 20
+        data, meta = download_or_load_data(ticker="GC=F", period="7d", interval="1m", csv_path=csv_fallback)
+        meta['n_candles'] = len(data)
+        meta['window'] = window
+        trades, df_result = run_fibonacci_backtest(data, window=window)
         plot_and_save_results(df_result, trades)
-        analyze_performance(df_result, trades)
+        stats = analyze_performance(df_result, trades)
+        generate_execution_log(meta, trades, stats)
         print("Backtest réel complété avec succès !")
     except Exception as e:
         print(f"Erreur lors de l'exécution du backtest : {e}")

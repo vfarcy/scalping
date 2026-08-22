@@ -13,6 +13,7 @@ Backtest d'une stratégie de trading basée sur les zones **Fibonacci OTE (Optim
    - Sécurisation à Break Even après cassure de structure (BOS).
 4. **Résultats** : courbe d'évolution du capital, statistiques (trades gagnants/perdants/BE, win rate, profit net) et export d'un graphique PNG.
 5. **Analyse de performance** : indicateurs avancés (profit factor, gain/perte moyens, espérance par trade, drawdown maximum) accompagnés d'une interprétation textuelle automatique de la robustesse de la stratégie.
+6. **Journal d'exécution** : à chaque run, un fichier `journal_execution_<horodatage>.log` est généré, détaillant le téléchargement des données, l'analyse structurelle/technique (EMA 200, swings, zone OTE) et l'exécution/protection de chaque trade (entrée, SL, TP, déclenchement du BE, résultat).
 
 ## Prérequis
 
@@ -31,7 +32,8 @@ Le script :
 - exécute le backtest,
 - affiche les statistiques dans la console,
 - enregistre le graphique de performance sous `backtest_real_performance.png` (dans le même dossier que le script),
-- affiche une analyse de performance détaillée (profit factor, drawdown maximum, espérance par trade) suivie d'une interprétation qualitative de la stratégie.
+- affiche une analyse de performance détaillée (profit factor, drawdown maximum, espérance par trade) suivie d'une interprétation qualitative de la stratégie,
+- génère un journal d'exécution horodaté (`journal_execution_<AAAAMMJJ_HHMMSS>.log`) reprenant les 3 étapes clés (téléchargement, analyse technique, exécution/protection) ainsi que le détail de chaque trade.
 
 ### Interprétation des résultats
 
@@ -42,9 +44,10 @@ Le script :
 
 ## Fichiers
 
-- [backtest_real_data.py](backtest_real_data.py) — script principal (téléchargement des données, backtest, génération du graphique).
+- [backtest_real_data.py](backtest_real_data.py) — script principal (téléchargement des données, backtest, génération du graphique et du journal d'exécution).
 - `mock_gold_data.csv` — données de secours utilisées si le téléchargement échoue (optionnel, à fournir localement).
 - `backtest_real_performance.png` — graphique généré après exécution.
+- `journal_execution_<horodatage>.log` — journal détaillé généré à chaque run (non versionné, voir `.gitignore`).
 
 ## Avertissement
 
