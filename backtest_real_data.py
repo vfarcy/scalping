@@ -322,7 +322,73 @@ def analyze_performance(df, trades, initial_capital=10000.0):
     print("- Ces résultats portent sur un échantillon limité (7 jours en 1 minute) : à confirmer sur une période plus longue avant toute conclusion définitive.")
     return stats
 
-def generate_execution_log(meta, trades, stats, log_filename=None):
+def _compute_bucket_stats(trades_subset):
+    """Calcule win rate, profit factor et espérance pour un sous-ensemble de trades."""
+    total = len(trades_subset)
+    if total == 0:
+        return {'total': 0}
+    wins = [t['profit'] for t in trades_subset if t['result'] == 'WIN']
+    losses = [t['profit'] for t in trades_subset if t['result'] == 'LOSS']
+    bes = [t['profit'] for t in trades_subset if t['result'] == 'BE']
+    win_rate = len(wins) / total * 100
+    gross_profit = sum(wins)
+    gross_loss = abs(sum(losses))
+    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float('inf')
+    net_profit = sum(t['profit'] for t in trades_subset)
+    expectancy = net_profit / total
+    return {
+        'total': total, 'wins': len(wins), 'losses': len(losses), 'bes': len(bes),
+        'win_rate': win_rate, 'profit_factor': profit_factor,
+        'net_profit': net_profit, 'expectancy': expectancy,
+    }
+
+def _format_bucket(label, s):
+    if s['total'] == 0:
+        return f"{label:<22}: aucun trade"
+    return (
+        f"{label:<22}: {s['total']} trades | win rate {s['win_rate']:.1f}% "
+        f"| profit factor {s['profit_factor']:.2f} | espérance {s['expectancy']:+.2f} € "
+        f"| P&L net {s['net_profit']:+.2f} €"
+    )
+
+def analyze_session_performance(trades, session_start=(14, 30), session_end=(17, 0)):
+    """
+    Compare la performance des trades ouverts durant la session de volatilité
+    américaine (par défaut 14h30-17h00, heure de l'horodatage des données)
+    par rapport au reste de la journée.
+    """
+    start_minutes = session_start[0] * 60 + session_start[1]
+    end_minutes = session_end[0] * 60 + session_end[1]
+
+    session_trades, other_trades = [], []
+    for t in trades:
+        minutes_of_day = t['entry_time'].hour * 60 + t['entry_time'].minute
+        if start_minutes <= minutes_of_day <= end_minutes:
+            session_trades.append(t)
+        else:
+            other_trades.append(t)
+
+    session_stats = _compute_bucket_stats(session_trades)
+    other_stats = _compute_bucket_stats(other_trades)
+
+    label = f"{session_start[0]:02d}h{session_start[1]:02d}-{session_end[0]:02d}h{session_end[1]:02d}"
+    print(f"\n=== Analyse par tranche horaire (session {label}) ===")
+    print(_format_bucket("Session volatilité US", session_stats))
+    print(_format_bucket("Reste de la journée", other_stats))
+
+    if session_stats['total'] > 0 and other_stats['total'] > 0:
+        if session_stats['profit_factor'] > other_stats['profit_factor'] and session_stats['expectancy'] > other_stats['expectancy']:
+            print("- La stratégie performe mieux durant la session de volatilité américaine que sur le reste de la journée.")
+        elif session_stats['profit_factor'] < other_stats['profit_factor'] and session_stats['expectancy'] < other_stats['expectancy']:
+            print("- La stratégie performe moins bien durant la session de volatilité américaine que sur le reste de la journée.")
+        else:
+            print("- Résultats mitigés entre la session de volatilité américaine et le reste de la journée : pas de tendance nette.")
+    else:
+        print("- Échantillon insuffisant sur l'une des deux tranches pour conclure.")
+
+    return {'label': label, 'session': session_stats, 'other': other_stats}
+
+def generate_execution_log(meta, trades, stats, session_analysis=None, log_filename=None):
     """
     Génère un journal d'exécution détaillant, pour ce run, les 3 étapes de la
     stratégie : téléchargement des données, analyse structurelle/technique,
@@ -378,6 +444,21 @@ def generate_execution_log(meta, trades, stats, log_filename=None):
         lines.append(f"Drawdown maximum    : {stats['max_drawdown']:.2f}%")
         lines.append(f"Profit net          : {stats['net_profit']:+.2f} € ({stats['net_profit_pct']:+.2f}%)")
 
+    if session_analysis is not None:
+        lines.append(f"\n--- 4. Analyse par tranche horaire (session {session_analysis['label']}) ---")
+        lines.append(_format_bucket("Session volatilité US", session_analysis['session']))
+        lines.append(_format_bucket("Reste de la journée", session_analysis['other']))
+        s, o = session_analysis['session'], session_analysis['other']
+        if s['total'] > 0 and o['total'] > 0:
+            if s['profit_factor'] > o['profit_factor'] and s['expectancy'] > o['expectancy']:
+                lines.append("La stratégie performe mieux durant la session de volatilité américaine que sur le reste de la journée.")
+            elif s['profit_factor'] < o['profit_factor'] and s['expectancy'] < o['expectancy']:
+                lines.append("La stratégie performe moins bien durant la session de volatilité américaine que sur le reste de la journée.")
+            else:
+                lines.append("Résultats mitigés entre la session de volatilité américaine et le reste de la journée : pas de tendance nette.")
+        else:
+            lines.append("Échantillon insuffisant sur l'une des deux tranches pour conclure.")
+
     with open(log_path, "w", encoding="utf-8") as f:
         f.write("\n".join(lines) + "\n")
 
@@ -397,7 +478,8 @@ if __name__ == "__main__":
         trades, df_result = run_fibonacci_backtest(data, window=window)
         plot_and_save_results(df_result, trades)
         stats = analyze_performance(df_result, trades)
-        generate_execution_log(meta, trades, stats)
+        session_analysis = analyze_session_performance(trades)
+        generate_execution_log(meta, trades, stats, session_analysis=session_analysis)
         print("Backtest réel complété avec succès !")
     except Exception as e:
         print(f"Erreur lors de l'exécution du backtest : {e}")
