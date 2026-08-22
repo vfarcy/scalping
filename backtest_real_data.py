@@ -246,6 +246,68 @@ def plot_and_save_results(df, trades, filename="backtest_real_performance.png"):
     plt.close()
     print(f"Graphique sauvegardé sous : {output_path}")
 
+def analyze_performance(df, trades, initial_capital=10000.0):
+    """
+    Calcule des indicateurs de performance avancés et affiche une interprétation
+    textuelle de la stratégie (win rate, profit factor, drawdown, expectancy...).
+    """
+    total = len(trades)
+    if total == 0:
+        print("\nAucun trade exécuté : aucune analyse de performance possible.")
+        return
+
+    wins = [t['profit'] for t in trades if t['result'] == 'WIN']
+    losses = [t['profit'] for t in trades if t['result'] == 'LOSS']
+    bes = [t['profit'] for t in trades if t['result'] == 'BE']
+
+    win_rate = len(wins) / total * 100
+    gross_profit = sum(wins)
+    gross_loss = abs(sum(losses))
+    profit_factor = (gross_profit / gross_loss) if gross_loss > 0 else float('inf')
+    avg_win = np.mean(wins) if wins else 0.0
+    avg_loss = np.mean(losses) if losses else 0.0
+    expectancy = (sum(t['profit'] for t in trades) / total)
+
+    # Maximum drawdown sur la courbe de capital
+    equity = df['capital'].values
+    running_max = np.maximum.accumulate(equity)
+    drawdowns = (equity - running_max) / running_max * 100
+    max_drawdown = drawdowns.min()
+
+    final_capital = df['capital'].iloc[-1]
+    net_profit = final_capital - initial_capital
+    net_profit_pct = net_profit / initial_capital * 100
+
+    print("\n=== Analyse de performance ===")
+    print(f"Trades totaux        : {total} (WIN: {len(wins)}, LOSS: {len(losses)}, BE: {len(bes)})")
+    print(f"Win rate             : {win_rate:.1f}%")
+    print(f"Profit factor        : {profit_factor:.2f}")
+    print(f"Gain moyen / Perte moyenne : {avg_win:.2f} € / {avg_loss:.2f} €")
+    print(f"Espérance par trade   : {expectancy:.2f} €")
+    print(f"Drawdown maximum      : {max_drawdown:.2f}%")
+    print(f"Profit net            : {net_profit:+.2f} € ({net_profit_pct:+.2f}%)")
+
+    # Interprétation qualitative
+    print("\n--- Interprétation ---")
+    if profit_factor >= 1.5:
+        print("- Profit factor solide : les gains couvrent largement les pertes.")
+    elif profit_factor >= 1.0:
+        print("- Profit factor tout juste positif : la stratégie est fragile, peu de marge de sécurité.")
+    else:
+        print("- Profit factor < 1 : la stratégie perd de l'argent sur cette période, à revoir.")
+
+    if win_rate >= 50:
+        print("- Win rate élevé, la stratégie gagne plus souvent qu'elle ne perd.")
+    else:
+        print("- Win rate faible : la rentabilité dépend d'un ratio gain/perte élevé plutôt que de la fréquence des gains.")
+
+    if max_drawdown <= -20:
+        print("- Drawdown important : le risque de perte en capital sur une séquence défavorable est élevé.")
+    else:
+        print("- Drawdown maîtrisé sur la période testée.")
+
+    print("- Ces résultats portent sur un échantillon limité (7 jours en 1 minute) : à confirmer sur une période plus longue avant toute conclusion définitive.")
+
 if __name__ == "__main__":
     # Test avec le fichier CSV de simulation
     csv_fallback = os.path.join(OUTPUT_DIR, "mock_gold_data.csv")
@@ -255,6 +317,7 @@ if __name__ == "__main__":
         data = download_or_load_data(ticker="GC=F", period="7d", interval="1m", csv_path=csv_fallback)
         trades, df_result = run_fibonacci_backtest(data)
         plot_and_save_results(df_result, trades)
+        analyze_performance(df_result, trades)
         print("Backtest réel complété avec succès !")
     except Exception as e:
         print(f"Erreur lors de l'exécution du backtest : {e}")

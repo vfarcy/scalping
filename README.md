@@ -1,10 +1,10 @@
 # Backtest Fibonacci OTE — Or (GC=F)
 
-Backtest d'une stratégie de trading basée sur les zones **Fibonacci OTE (Optimal Trade Entry)** appliquée à l'or (`GC=F`), sur des données horaires réelles téléchargées depuis Yahoo Finance.
+Backtest d'une stratégie de trading basée sur les zones **Fibonacci OTE (Optimal Trade Entry)** appliquée à l'or (`GC=F`), sur des données réelles en 1 minute téléchargées depuis Yahoo Finance.
 
 ## Fonctionnement
 
-1. **Récupération des données** : téléchargement des bougies horaires via `yfinance`. En cas d'échec (pas de connexion internet), le script se rabat automatiquement sur un fichier CSV local (`mock_gold_data.csv`).
+1. **Récupération des données** : téléchargement des bougies en 1 minute via `yfinance` (période de 7 jours, limite maximale imposée par Yahoo Finance pour cette unité de temps). En cas d'échec (pas de connexion internet), le script se rabat automatiquement sur un fichier CSV local (`mock_gold_data.csv`).
 2. **Détection de tendance** : une EMA 200 détermine le biais haussier ou baissier.
 3. **Stratégie Fibonacci OTE** :
    - Identification des swings hauts/bas récents.
@@ -12,6 +12,7 @@ Backtest d'une stratégie de trading basée sur les zones **Fibonacci OTE (Optim
    - Stop loss sous/au-dessus du swing, take profit basé sur un ratio risque/rendement.
    - Sécurisation à Break Even après cassure de structure (BOS).
 4. **Résultats** : courbe d'évolution du capital, statistiques (trades gagnants/perdants/BE, win rate, profit net) et export d'un graphique PNG.
+5. **Analyse de performance** : indicateurs avancés (profit factor, gain/perte moyens, espérance par trade, drawdown maximum) accompagnés d'une interprétation textuelle automatique de la robustesse de la stratégie.
 
 ## Prérequis
 
@@ -26,10 +27,18 @@ python backtest_real_data.py
 ```
 
 Le script :
-- télécharge 1 mois de données horaires pour `GC=F`,
+- télécharge les 7 derniers jours de données en 1 minute pour `GC=F`,
 - exécute le backtest,
 - affiche les statistiques dans la console,
-- enregistre le graphique de performance sous `backtest_real_performance.png` (dans le même dossier que le script).
+- enregistre le graphique de performance sous `backtest_real_performance.png` (dans le même dossier que le script),
+- affiche une analyse de performance détaillée (profit factor, drawdown maximum, espérance par trade) suivie d'une interprétation qualitative de la stratégie.
+
+### Interprétation des résultats
+
+- **Profit factor** (gains bruts / pertes brutes) : ≥ 1.5 est considéré comme solide, entre 1 et 1.5 la stratégie est fragile, < 1 elle est perdante.
+- **Win rate** : un taux faible n'est pas rédhibitoire si le ratio gain/perte moyen compense (voir l'espérance par trade).
+- **Drawdown maximum** : plus il est élevé (en valeur absolue), plus le risque de perte en capital sur une séquence défavorable est important.
+- Ces indicateurs sont calculés sur un échantillon limité (7 jours en 1 minute) : ils doivent être confirmés sur une période plus longue avant toute conclusion définitive.
 
 ## Fichiers
 
