@@ -53,6 +53,20 @@ def download_or_load_data(ticker="GC=F", period="1mo", interval="1h", csv_path=N
         else:
             raise FileNotFoundError("Aucune source de données disponible.")
 
+def normalize_to_market_timezone(df, target_tz="America/New_York"):
+    """
+    Harmonise le fuseau horaire des données sur celui du marché américain (NYSE/CME).
+    yfinance renvoie les horodatages dans le fuseau natif de chaque place (ex. Europe/London
+    pour EURUSD=X, America/New_York pour GC=F/NQ=F/CL=F) : sans cette conversion, une même
+    tranche horaire (ex. 14h30-17h00) ne désignerait pas le même moment réel selon l'actif,
+    faussant toute comparaison inter-actifs par session.
+    """
+    if isinstance(df['time'].dtype, pd.DatetimeTZDtype):
+        df['time'] = df['time'].dt.tz_convert(target_tz)
+    else:
+        print("Avertissement : horodatages sans fuseau horaire (naïfs) — hypothèse implicite qu'ils sont déjà en heure de New York.")
+    return df
+
 def run_fibonacci_backtest(df, window=20, risk_reward=2.0):
     """
     Exécute le backtest de la stratégie de Fibonacci OTE.
@@ -354,8 +368,9 @@ def _format_bucket(label, s):
 def analyze_session_performance(trades, session_start=(14, 30), session_end=(17, 0)):
     """
     Compare la performance des trades ouverts durant la session de volatilité
-    américaine (par défaut 14h30-17h00, heure de l'horodatage des données)
-    par rapport au reste de la journée.
+    américaine (par défaut 14h30-17h00, heure de New York — voir
+    `normalize_to_market_timezone` qui garantit que tous les actifs sont exprimés
+    dans ce même fuseau avant le backtest) par rapport au reste de la journée.
     """
     start_minutes = session_start[0] * 60 + session_start[1]
     end_minutes = session_end[0] * 60 + session_end[1]
@@ -559,6 +574,7 @@ if __name__ == "__main__":
                 ticker=asset['ticker'], period=asset['period'], interval=asset['interval'],
                 csv_path=csv_fallback if os.path.exists(csv_fallback) else None
             )
+            data = normalize_to_market_timezone(data)
             meta['n_candles'] = len(data)
             meta['window'] = window
             trades, df_result = run_fibonacci_backtest(data, window=window)
