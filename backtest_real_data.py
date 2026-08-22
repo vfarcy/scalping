@@ -214,13 +214,13 @@ def run_fibonacci_backtest(df, window=20, risk_reward=2.0):
     df['capital'] = equity_curve[:len(df)]
     return trades, df
 
-def plot_and_save_results(df, trades, filename="backtest_real_performance.png"):
+def plot_and_save_results(df, trades, filename="backtest_real_performance.png", asset_label="Or (Gold)"):
     """
     Affiche et enregistre la courbe de croissance du capital.
     """
     plt.figure(figsize=(10, 6))
     plt.plot(df['time'], df['capital'], label="Courbe de Capital (€)", color="#cc5500", linewidth=2)
-    plt.title("Performance du Backtest Fibonacci OTE (Données Réelles)", fontsize=14, fontweight='bold', pad=15)
+    plt.title(f"Performance du Backtest Fibonacci OTE — {asset_label}", fontsize=14, fontweight='bold', pad=15)
     plt.xlabel("Date", fontsize=11)
     plt.ylabel("Capital (€)", fontsize=11)
     plt.grid(True, linestyle="--", alpha=0.5)
@@ -465,21 +465,111 @@ def generate_execution_log(meta, trades, stats, session_analysis=None, log_filen
     print(f"Journal d'exécution sauvegardé sous : {log_path}")
     return log_path
 
+def compare_assets_performance(results, filename="comparatif_actifs.png", log_filename="comparatif_actifs.log"):
+    """
+    Compare scientifiquement les performances de la stratégie sur plusieurs actifs
+    (Or, Nasdaq, EUR/USD...) : tableau récapitulatif, graphique comparatif des
+    indicateurs clés et journal texte.
+    """
+    valid_results = [r for r in results if r.get('stats', {}).get('total', 0) > 0]
+    if not valid_results:
+        print("\nAucun résultat exploitable pour la comparaison inter-actifs (aucun trade sur aucun actif).")
+        return None
+
+    labels = [r['label'] for r in valid_results]
+    net_profits = [r['stats']['net_profit'] for r in valid_results]
+    win_rates = [r['stats']['win_rate'] for r in valid_results]
+    profit_factors = [min(r['stats']['profit_factor'], 5.0) for r in valid_results]  # plafonné pour l'affichage
+    drawdowns = [r['stats']['max_drawdown'] for r in valid_results]
+
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8))
+    colors = ["#cc5500", "#1f77b4", "#2ca02c", "#9467bd"][:len(labels)]
+
+    axes[0, 0].bar(labels, net_profits, color=colors)
+    axes[0, 0].set_title("Profit net (€)")
+    axes[0, 0].axhline(0, color="black", linewidth=0.8)
+
+    axes[0, 1].bar(labels, win_rates, color=colors)
+    axes[0, 1].set_title("Win rate (%)")
+
+    axes[1, 0].bar(labels, profit_factors, color=colors)
+    axes[1, 0].set_title("Profit factor (plafonné à 5.0)")
+
+    axes[1, 1].bar(labels, drawdowns, color=colors)
+    axes[1, 1].set_title("Drawdown maximum (%)")
+
+    for ax in axes.flat:
+        ax.grid(True, axis='y', linestyle="--", alpha=0.5)
+        ax.tick_params(axis='x', rotation=15)
+
+    fig.suptitle("Comparatif de la stratégie Fibonacci OTE selon l'actif", fontsize=14, fontweight='bold')
+    plt.tight_layout()
+    output_path = os.path.join(OUTPUT_DIR, filename)
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"\nGraphique comparatif sauvegardé sous : {output_path}")
+
+    # Tableau texte + journal
+    header = f"{'Actif':<15}{'Trades':>8}{'Win rate':>10}{'Profit factor':>15}{'Drawdown max':>15}{'Profit net':>14}"
+    lines = ["=== COMPARATIF DES PERFORMANCES PAR ACTIF ===", "", header, "-" * len(header)]
+    for r in valid_results:
+        s = r['stats']
+        lines.append(
+            f"{r['label']:<15}{s['total']:>8}{s['win_rate']:>9.1f}%{s['profit_factor']:>15.2f}"
+            f"{s['max_drawdown']:>14.2f}%{s['net_profit']:>13.2f} €"
+        )
+    print("\n" + "\n".join(lines))
+
+    best = max(valid_results, key=lambda r: r['stats']['net_profit'])
+    lines.append("")
+    lines.append(f"Actif le plus performant (profit net) : {best['label']} ({best['stats']['net_profit']:+.2f} €)")
+    print(f"\n- Actif le plus performant (profit net) : {best['label']} ({best['stats']['net_profit']:+.2f} €)")
+
+    log_path = os.path.join(OUTPUT_DIR, log_filename)
+    with open(log_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines) + "\n")
+    print(f"Journal comparatif sauvegardé sous : {log_path}")
+
+    return {'labels': labels, 'net_profits': net_profits, 'win_rates': win_rates,
+            'profit_factors': profit_factors, 'drawdowns': drawdowns, 'best': best['label']}
+
 if __name__ == "__main__":
-    # Test avec le fichier CSV de simulation
-    csv_fallback = os.path.join(OUTPUT_DIR, "mock_gold_data.csv")
-    try:
-        # Essayer de lancer le backtest (utilise yfinance en local ou le CSV en fallback)
-        # Yahoo Finance limite l'historique en 1 minute aux 7 derniers jours
-        window = 20
-        data, meta = download_or_load_data(ticker="GC=F", period="7d", interval="1m", csv_path=csv_fallback)
-        meta['n_candles'] = len(data)
-        meta['window'] = window
-        trades, df_result = run_fibonacci_backtest(data, window=window)
-        plot_and_save_results(df_result, trades)
-        stats = analyze_performance(df_result, trades)
-        session_analysis = analyze_session_performance(trades)
-        generate_execution_log(meta, trades, stats, session_analysis=session_analysis)
-        print("Backtest réel complété avec succès !")
-    except Exception as e:
-        print(f"Erreur lors de l'exécution du backtest : {e}")
+    # Configuration des actifs à comparer : Or (référence), Nasdaq et EUR/USD.
+    # Yahoo Finance limite l'historique en 1 minute aux 7 derniers jours.
+    ASSETS = [
+        {'label': 'Or (Gold)', 'ticker': 'GC=F', 'period': '7d', 'interval': '1m',
+         'csv_fallback': 'mock_gold_data.csv'},
+        {'label': 'Nasdaq', 'ticker': 'NQ=F', 'period': '7d', 'interval': '1m',
+         'csv_fallback': 'mock_nasdaq_data.csv'},
+        {'label': 'EUR/USD', 'ticker': 'EURUSD=X', 'period': '7d', 'interval': '1m',
+         'csv_fallback': 'mock_eurusd_data.csv'},
+        {'label': 'Pétrole (WTI)', 'ticker': 'CL=F', 'period': '7d', 'interval': '1m',
+         'csv_fallback': 'mock_oil_data.csv'},
+    ]
+    window = 20
+    results = []
+
+    for asset in ASSETS:
+        slug = asset['label'].lower().replace('/', '').replace(' ', '_').replace('(', '').replace(')', '')
+        print(f"\n{'=' * 20} BACKTEST : {asset['label']} ({asset['ticker']}) {'=' * 20}")
+        try:
+            csv_fallback = os.path.join(OUTPUT_DIR, asset['csv_fallback'])
+            data, meta = download_or_load_data(
+                ticker=asset['ticker'], period=asset['period'], interval=asset['interval'],
+                csv_path=csv_fallback if os.path.exists(csv_fallback) else None
+            )
+            meta['n_candles'] = len(data)
+            meta['window'] = window
+            trades, df_result = run_fibonacci_backtest(data, window=window)
+            plot_and_save_results(df_result, trades, filename=f"backtest_{slug}_performance.png", asset_label=asset['label'])
+            stats = analyze_performance(df_result, trades)
+            session_analysis = analyze_session_performance(trades)
+            generate_execution_log(meta, trades, stats, session_analysis=session_analysis,
+                                    log_filename=f"journal_execution_{slug}.log")
+            results.append({'label': asset['label'], 'stats': stats})
+            print(f"Backtest {asset['label']} complété avec succès !")
+        except Exception as e:
+            print(f"Erreur lors de l'exécution du backtest pour {asset['label']} : {e}")
+            results.append({'label': asset['label'], 'stats': {'total': 0}})
+
+    compare_assets_performance(results)
