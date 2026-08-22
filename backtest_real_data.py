@@ -251,7 +251,8 @@ if __name__ == "__main__":
     csv_fallback = os.path.join(OUTPUT_DIR, "mock_gold_data.csv")
     try:
         # Essayer de lancer le backtest (utilise yfinance en local ou le CSV en fallback)
-        data = download_or_load_data(ticker="GC=F", csv_path=csv_fallback)
+        # Yahoo Finance limite l'historique en 1 minute aux 7 derniers jours
+        data = download_or_load_data(ticker="GC=F", period="7d", interval="1m", csv_path=csv_fallback)
         trades, df_result = run_fibonacci_backtest(data)
         plot_and_save_results(df_result, trades)
         print("Backtest réel complété avec succès !")
