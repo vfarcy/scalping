@@ -13,5 +13,5 @@ __pycache__/
 *.pyc
 
 # Generated output
-backtest_real_performance.png
-journal_execution_*.log
+*.png
+*.log
