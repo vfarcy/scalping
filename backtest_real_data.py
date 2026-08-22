@@ -548,6 +548,7 @@ if __name__ == "__main__":
     ]
     window = 20
     results = []
+    run_timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
 
     for asset in ASSETS:
         slug = asset['label'].lower().replace('/', '').replace(' ', '_').replace('(', '').replace(')', '')
@@ -561,15 +562,16 @@ if __name__ == "__main__":
             meta['n_candles'] = len(data)
             meta['window'] = window
             trades, df_result = run_fibonacci_backtest(data, window=window)
-            plot_and_save_results(df_result, trades, filename=f"backtest_{slug}_performance.png", asset_label=asset['label'])
+            plot_and_save_results(df_result, trades, filename=f"backtest_{slug}_performance_{run_timestamp}.png", asset_label=asset['label'])
             stats = analyze_performance(df_result, trades)
             session_analysis = analyze_session_performance(trades)
             generate_execution_log(meta, trades, stats, session_analysis=session_analysis,
-                                    log_filename=f"journal_execution_{slug}.log")
+                                    log_filename=f"journal_execution_{slug}_{run_timestamp}.log")
             results.append({'label': asset['label'], 'stats': stats})
             print(f"Backtest {asset['label']} complété avec succès !")
         except Exception as e:
             print(f"Erreur lors de l'exécution du backtest pour {asset['label']} : {e}")
             results.append({'label': asset['label'], 'stats': {'total': 0}})
 
-    compare_assets_performance(results)
+    compare_assets_performance(results, filename=f"comparatif_actifs_{run_timestamp}.png",
+                                log_filename=f"comparatif_actifs_{run_timestamp}.log")
