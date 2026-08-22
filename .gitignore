@@ -1,0 +1,16 @@
+# Conda environment internals (this workspace root is a conda env directory)
+bin/
+compiler_compat/
+conda-meta/
+etc/
+include/
+lib/
+share/
+ssl/
+x86_64-conda-linux-gnu/
+
+__pycache__/
+*.pyc
+
+# Generated output
+backtest_real_performance.png
