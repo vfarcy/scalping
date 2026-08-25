@@ -2,7 +2,7 @@
 
 Ce projet teste une stratégie de scalping basée sur le retracement de Fibonacci **OTE (Optimal Trade Entry)**. Le signal est filtré par une moyenne mobile exponentielle 200, protégé par un Stop Loss, puis géré avec un Take Profit à ratio risque/rendement 1:2 et une sécurisation au Break Even après cassure de structure.
 
-Le script principal est [scalping.py](scalping.py). Il compare actuellement l'or (`GC=F`), le Nasdaq (`NQ=F`), EUR/USD (`EURUSD=X`) et le pétrole WTI (`CL=F`) à partir de données Yahoo Finance en 1 minute.
+Le script principal est [backtest_real_data.py](backtest_real_data.py). Il compare actuellement l'or (`GC=F`), le Nasdaq (`NQ=F`), EUR/USD (`EURUSD=X`) et le pétrole WTI (`CL=F`) à partir de données Yahoo Finance en 1 minute.
 
 ## Logique de la stratégie
 
