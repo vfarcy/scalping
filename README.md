@@ -196,6 +196,43 @@ Exemples tirés du journal :
 3. Les sorties `BE` protègent le capital et évitent de transformer un trade prometteur en perte.
 4. La rentabilité vient du couple **gestion du risque + exécution disciplinée**, pas du seul win rate.
 
+## Mini fiche discipline (réel)
+
+Cette checklist sert à reproduire la même discipline que le backtest, sans improvisation.
+
+### 1) Avant entrée
+
+- Vérifier le contexte : bougies propres, pas de bug de flux, spread normal.
+- Vérifier le biais EMA 200 :
+	- `close > EMA200` -> seulement `BUY`.
+	- `close < EMA200` -> seulement `SELL`.
+- Identifier un mouvement impulsif valide (ordre des extrêmes respecté, amplitude suffisante).
+- Tracer l'OTE `0.62` du mouvement.
+- Définir les niveaux avant de cliquer : `entrée`, `SL`, `TP`, `BOS`.
+- Calculer le risque en pips (`distance entrée-SL`) puis la taille (`lot`) pour rester dans le risque max du plan.
+- Vérifier le ratio cible (ici `1:2`) après prise en compte spread/slippage.
+- Check news : éviter une entrée juste avant une annonce macro forte si ce n'est pas prévu dans le plan.
+
+### 2) Pendant le trade
+
+- Ne pas déplacer le SL pour "laisser respirer" un trade perdant.
+- Surveiller la condition BOS.
+- Dès BOS validé, déplacer le SL à BE (prix d'entrée) selon la règle du plan.
+- Laisser vivre le trade : pas de sortie émotionnelle tant qu'aucune règle de sortie n'est touchée.
+- Ne pas sur-exposer : un seul scénario, pas d'empilement de positions impulsif.
+
+### 3) Sortie et post-trade
+
+- Classer la sortie sans biais : `WIN`, `LOSS` ou `BE`.
+- Noter les chiffres clés : entrée, sortie, pips, P&L, heure, contexte.
+- Vérifier l'exécution : la règle a-t-elle été respectée de bout en bout ?
+- Si erreur de discipline : écrire la correction concrète pour le prochain trade.
+- Faire une pause courte après une série de pertes ou un gros gain pour éviter le tilt/euphorie.
+
+Règle d'or :
+
+- Si ce n'est pas dans le plan, ce n'est pas un trade.
+
 ## Installation et exécution
 
 ```bash
