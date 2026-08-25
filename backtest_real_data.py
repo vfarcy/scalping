@@ -444,9 +444,9 @@ def generate_execution_log(meta, trades, stats, session_analysis=None, log_filen
         for idx, t in enumerate(trades, start=1):
             be_str = "Oui" if t['be_triggered'] else "Non"
             lines.append(
-                f"#{idx:03d} {t['type']:<4} | entrée {t['entry_time']} @ {t['entry_price']:.2f} "
-                f"| SL {t['sl']:.2f} | TP {t['tp']:.2f} | BOS {t['bos']:.2f} | BE déclenché : {be_str} "
-                f"| sortie {t['exit_time']} @ {t['exit_price']:.2f} | résultat {t['result']} | P&L {t['profit']:+.2f} €"
+                f"#{idx:03d} {t['type']:<4} | entrée {t['entry_time']} @ {t['entry_price']:.5f} "
+                f"| SL {t['sl']:.5f} | TP {t['tp']:.5f} | BOS {t['bos']:.5f} | BE déclenché : {be_str} "
+                f"| sortie {t['exit_time']} @ {t['exit_price']:.5f} | résultat {t['result']} | P&L {t['profit']:+.2f} €"
             )
     else:
         lines.append("Aucun trade exécuté durant cette période.")
@@ -591,3 +591,4 @@ if __name__ == "__main__":
 
     compare_assets_performance(results, filename=f"comparatif_actifs_{run_timestamp}.png",
                                 log_filename=f"comparatif_actifs_{run_timestamp}.log")
+    
