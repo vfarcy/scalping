@@ -67,15 +67,18 @@ def normalize_to_market_timezone(df, target_tz="America/New_York"):
         print("Avertissement : horodatages sans fuseau horaire (naïfs) — hypothèse implicite qu'ils sont déjà en heure de New York.")
     return df
 
-def run_fibonacci_backtest(df, window=20, risk_reward=2.0):
+def run_fibonacci_backtest(
+    df, window=20, risk_reward=2.0, initial_capital=10000.0,
+    risk_per_trade=0.01, spread=0.0, commission=0.0, slippage=0.0,
+    point_value=1.0
+):
     """
     Exécute le backtest de la stratégie de Fibonacci OTE.
     """
     trades = []
-    capital = 10000.0 # Capital de départ fictif
+    capital = initial_capital
     initial_capital = capital
-    equity_curve = [capital]
-    dates = [df['time'].iloc[0]]
+    equity_curve = []
     
     # 1. Calculer la tendance de fond (Moyenne Mobile Exponentielle 200)
     df['ema_200'] = df['close'].ewm(span=200, adjust=False).mean()
@@ -86,13 +89,34 @@ def run_fibonacci_backtest(df, window=20, risk_reward=2.0):
     
     in_trade = False
     trade_info = {}
+    pending_trade = None
     
     for i in range(window, len(df)):
         current_time = df['time'].iloc[i]
+        current_open = df['open'].iloc[i]
         current_close = df['close'].iloc[i]
         current_high = df['high'].iloc[i]
         current_low = df['low'].iloc[i]
         ema_200 = df['ema_200'].iloc[i]
+
+        # Une détection sur la bougie précédente déclenche une entrée à l'ouverture suivante.
+        if pending_trade is not None and not in_trade:
+            pending_trade['entry_price'] = current_open
+            entry = pending_trade['entry_price']
+            if (
+                (pending_trade['type'] == 'BUY' and entry > pending_trade['sl']) or
+                (pending_trade['type'] == 'SELL' and entry < pending_trade['sl'])
+            ):
+                risk_distance = abs(entry - pending_trade['sl'])
+                total_cost_per_unit = spread + (2 * slippage)
+                position_risk = (risk_distance + total_cost_per_unit) * point_value
+                position_size = (capital * risk_per_trade / position_risk) if position_risk > 0 else 0.0
+                pending_trade['position_size'] = position_size
+                pending_trade['initial_sl'] = pending_trade['sl']
+                pending_trade['entry_time'] = current_time
+                trade_info = pending_trade
+                in_trade = position_size > 0
+            pending_trade = None
         
         if not in_trade:
             # Recherche d'opportunité d'achat (Tendance haussière)
@@ -118,15 +142,13 @@ def run_fibonacci_backtest(df, window=20, risk_reward=2.0):
                         
                         # Si le prix actuel retrace dans la zone OTE
                         if current_low <= ote_entry and current_close > sl_level:
-                            in_trade = True
-                            trade_info = {
+                            pending_trade = {
                                 'type': 'BUY',
-                                'entry_price': ote_entry,
                                 'sl': sl_level,
                                 'tp': tp_level,
                                 'bos': bos_level,
                                 'be_triggered': False,
-                                'entry_time': current_time
+                                'signal_time': current_time
                             }
             
             # Recherche d'opportunité de vente (Tendance baissière)
@@ -150,15 +172,13 @@ def run_fibonacci_backtest(df, window=20, risk_reward=2.0):
                         
                         # Si le prix actuel retrace à la hausse dans la zone OTE
                         if current_high >= ote_entry and current_close < sl_level:
-                            in_trade = True
-                            trade_info = {
+                            pending_trade = {
                                 'type': 'SELL',
-                                'entry_price': ote_entry,
                                 'sl': sl_level,
                                 'tp': tp_level,
                                 'bos': bos_level,
                                 'be_triggered': False,
-                                'entry_time': current_time
+                                'signal_time': current_time
                             }
                             
         else:
@@ -169,6 +189,7 @@ def run_fibonacci_backtest(df, window=20, risk_reward=2.0):
             tp = trade_info['tp']
             bos = trade_info['bos']
             be = trade_info['be_triggered']
+            position_size = trade_info['position_size']
             
             if t_type == 'BUY':
                 # Vérifier si on doit sécuriser à Break Even (BOS)
@@ -180,17 +201,19 @@ def run_fibonacci_backtest(df, window=20, risk_reward=2.0):
                 # Sorties de trade
                 if current_low <= trade_info['sl']:
                     # Perte ou sortie à BE
-                    loss_pts = entry - trade_info['sl']
                     result = "BE" if be else "LOSS"
-                    profit = 0.0 if be else -100.0 # Risque fixe de 100€
+                    exit_price = trade_info['sl'] - slippage - spread / 2
+                    gross_pnl = (exit_price - entry) * position_size * point_value
+                    profit = gross_pnl - commission
                     capital += profit
-                    trades.append({**trade_info, 'exit_price': trade_info['sl'], 'exit_time': current_time, 'result': result, 'profit': profit})
+                    trades.append({**trade_info, 'exit_price': exit_price, 'exit_time': current_time, 'result': result, 'profit': profit})
                     in_trade = False
                 elif current_high >= tp:
                     # Gain
-                    profit = 100.0 * risk_reward
+                    exit_price = tp - slippage - spread / 2
+                    profit = (exit_price - entry) * position_size * point_value - commission
                     capital += profit
-                    trades.append({**trade_info, 'exit_price': tp, 'exit_time': current_time, 'result': 'WIN', 'profit': profit})
+                    trades.append({**trade_info, 'exit_price': exit_price, 'exit_time': current_time, 'result': 'WIN', 'profit': profit})
                     in_trade = False
                     
             elif t_type == 'SELL':
@@ -202,30 +225,27 @@ def run_fibonacci_backtest(df, window=20, risk_reward=2.0):
                 
                 # Sorties de trade
                 if current_high >= trade_info['sl']:
-                    loss_pts = trade_info['sl'] - entry
                     result = "BE" if be else "LOSS"
-                    profit = 0.0 if be else -100.0
+                    exit_price = trade_info['sl'] + slippage + spread / 2
+                    gross_pnl = (entry - exit_price) * position_size * point_value
+                    profit = gross_pnl - commission
                     capital += profit
-                    trades.append({**trade_info, 'exit_price': trade_info['sl'], 'exit_time': current_time, 'result': result, 'profit': profit})
+                    trades.append({**trade_info, 'exit_price': exit_price, 'exit_time': current_time, 'result': result, 'profit': profit})
                     in_trade = False
                 elif current_low <= tp:
                     # Gain
-                    profit = 100.0 * risk_reward
+                    exit_price = tp + slippage + spread / 2
+                    profit = (entry - exit_price) * position_size * point_value - commission
                     capital += profit
-                    trades.append({**trade_info, 'exit_price': tp, 'exit_time': current_time, 'result': 'WIN', 'profit': profit})
+                    trades.append({**trade_info, 'exit_price': exit_price, 'exit_time': current_time, 'result': 'WIN', 'profit': profit})
                     in_trade = False
-            
-            # Enregistrer la courbe de capital
-            equity_curve.append(capital)
-            dates.append(current_time)
-            
-    # S'assurer d'avoir la taille identique
-    if len(equity_curve) < len(df):
-        # Remplir le reste avec le dernier capital connu
-        last_cap = equity_curve[-1]
-        equity_curve.extend([last_cap] * (len(df) - len(equity_curve)))
-        
-    df['capital'] = equity_curve[:len(df)]
+
+        # Une observation de capital est conservée pour chaque bougie afin que
+        # le drawdown et le graphique restent alignés avec les dates.
+        equity_curve.append(capital)
+
+    df['capital'] = initial_capital
+    df.loc[df.index[window:], 'capital'] = equity_curve
     return trades, df
 
 def plot_and_save_results(df, trades, filename="backtest_real_performance.png", asset_label="Or (Gold)"):
@@ -591,4 +611,3 @@ if __name__ == "__main__":
 
     compare_assets_performance(results, filename=f"comparatif_actifs_{run_timestamp}.png",
                                 log_filename=f"comparatif_actifs_{run_timestamp}.log")
-    
