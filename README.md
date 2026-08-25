@@ -147,6 +147,55 @@ Le win rate ne doit pas être interprété seul. Avec un ratio cible 1:2, une st
 
 L'analyse par session compare les trades ouverts entre 14h30 et 17h00, heure de New York, au reste de la journée. Une session contenant très peu de trades ne permet pas de conclure statistiquement ; un résultat positif sur un seul trade est un signal descriptif, pas une preuve de supériorité.
 
+## Comprendre prix, pips et P&L (lecture du journal)
+
+Dans le journal, les valeurs comme `1.15996` et `1.15943` sont des **prix EUR/USD**, pas des pips.
+
+Exemple sur le trade `#003 SELL` :
+
+```text
+entrée 1.15996, sortie 1.15943
+différence de prix = 1.15996 - 1.15943 = 0.00053
+```
+
+Sur EUR/USD :
+
+- `1 pip = 0.0001`
+- `1 point (pipette) = 0.00001`
+
+Donc `0.00053 = 5.3 pips = 53 points`.
+
+Le P&L ne dépend pas uniquement du mouvement en prix. Il dépend aussi de la taille de position :
+
+```text
+P&L = mouvement (pips) * valeur du pip * taille
+```
+
+Un petit mouvement en prix peut donc produire un P&L élevé si la taille est importante.
+
+## Comparaison pédagogique : WIN, LOSS, BE
+
+Les trois issues possibles d'un trade sont :
+
+- `WIN` : le prix touche le Take Profit (TP).
+- `LOSS` : le prix touche le Stop Loss (SL) avant TP.
+- `BE` : le stop est déplacé au Break Even (prix d'entrée), puis touché.
+
+Exemples tirés du journal :
+
+| Trade | Type | Résultat | Lecture pédagogique |
+|---|---|---|---|
+| `#003` | SELL | WIN `(+183.76 EUR)` | Entrée `1.15996`, sortie TP `1.15943`. Le marché baisse comme prévu. Mouvement `0.00053 = 5.3 pips = 53 points`. |
+| `#002` | BUY | LOSS `(-100.00 EUR)` | Entrée `1.16077`, SL touché à `1.16075`. Le scénario haussier est invalidé rapidement. Le SL limite la perte. |
+| `#004` | SELL | BE `(0.00 EUR)` | Après validation BOS, le SL est remonté au prix d'entrée (`BE déclenché : Oui`). Le marché revient, la position sort à zéro. |
+
+À retenir pour un trader débutant :
+
+1. Le marché bouge en **prix**, mais le risque se pilote mieux en **pips**.
+2. Un bon système n'évite pas les pertes ; il les **contrôle**.
+3. Les sorties `BE` protègent le capital et évitent de transformer un trade prometteur en perte.
+4. La rentabilité vient du couple **gestion du risque + exécution disciplinée**, pas du seul win rate.
+
 ## Installation et exécution
 
 ```bash
