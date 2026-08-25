@@ -74,6 +74,9 @@ def run_fibonacci_backtest(
 ):
     """
     Exécute le backtest de la stratégie de Fibonacci OTE.
+
+    Pour un compte Axi Standard, commission doit rester à 0.0 : le coût
+    principal est le spread variable, à fournir dans l'unité de prix.
     """
     trades = []
     capital = initial_capital
@@ -573,13 +576,13 @@ if __name__ == "__main__":
     # Yahoo Finance limite l'historique en 1 minute aux 7 derniers jours.
     ASSETS = [
         {'label': 'Or (Gold)', 'ticker': 'GC=F', 'period': '7d', 'interval': '1m',
-         'csv_fallback': 'mock_gold_data.csv'},
+         'csv_fallback': 'mock_gold_data.csv', 'spread': 0.0, 'slippage': 0.0},
         {'label': 'Nasdaq', 'ticker': 'NQ=F', 'period': '7d', 'interval': '1m',
-         'csv_fallback': 'mock_nasdaq_data.csv'},
+         'csv_fallback': 'mock_nasdaq_data.csv', 'spread': 0.0, 'slippage': 0.0},
         {'label': 'EUR/USD', 'ticker': 'EURUSD=X', 'period': '7d', 'interval': '1m',
-         'csv_fallback': 'mock_eurusd_data.csv'},
+         'csv_fallback': 'mock_eurusd_data.csv', 'spread': 0.0, 'slippage': 0.0},
         {'label': 'Pétrole (WTI)', 'ticker': 'CL=F', 'period': '7d', 'interval': '1m',
-         'csv_fallback': 'mock_oil_data.csv'},
+         'csv_fallback': 'mock_oil_data.csv', 'spread': 0.0, 'slippage': 0.0},
     ]
     window = 20
     results = []
@@ -597,7 +600,10 @@ if __name__ == "__main__":
             data = normalize_to_market_timezone(data)
             meta['n_candles'] = len(data)
             meta['window'] = window
-            trades, df_result = run_fibonacci_backtest(data, window=window)
+            trades, df_result = run_fibonacci_backtest(
+                data, window=window, commission=asset['commission'] if 'commission' in asset else 0.0,
+                spread=asset['spread'], slippage=asset['slippage']
+            )
             plot_and_save_results(df_result, trades, filename=f"backtest_{slug}_performance_{run_timestamp}.png", asset_label=asset['label'])
             stats = analyze_performance(df_result, trades)
             session_analysis = analyze_session_performance(trades)
