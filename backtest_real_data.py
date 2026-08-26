@@ -107,8 +107,16 @@ def run_fibonacci_backtest(
             pending_trade['entry_price'] = current_open
             entry = pending_trade['entry_price']
             if (
-                (pending_trade['type'] == 'BUY' and entry > pending_trade['sl']) or
-                (pending_trade['type'] == 'SELL' and entry < pending_trade['sl'])
+                (
+                    pending_trade['type'] == 'BUY'
+                    and pending_trade['sl'] < entry < pending_trade['tp']
+                    and pending_trade['bos'] > entry
+                ) or
+                (
+                    pending_trade['type'] == 'SELL'
+                    and pending_trade['tp'] < entry < pending_trade['sl']
+                    and pending_trade['bos'] < entry
+                )
             ):
                 risk_distance = abs(entry - pending_trade['sl'])
                 total_cost_per_unit = spread + (2 * slippage)
@@ -468,7 +476,8 @@ def generate_execution_log(meta, trades, stats, session_analysis=None, log_filen
             be_str = "Oui" if t['be_triggered'] else "Non"
             lines.append(
                 f"#{idx:03d} {t['type']:<4} | entrée {t['entry_time']} @ {t['entry_price']:.5f} "
-                f"| SL {t['sl']:.5f} | TP {t['tp']:.5f} | BOS {t['bos']:.5f} | BE déclenché : {be_str} "
+                f"| SL initial {t['initial_sl']:.5f} | SL final {t['sl']:.5f} | TP {t['tp']:.5f} "
+                f"| BOS {t['bos']:.5f} | BE déclenché : {be_str} "
                 f"| sortie {t['exit_time']} @ {t['exit_price']:.5f} | résultat {t['result']} | P&L {t['profit']:+.2f} €"
             )
     else:
