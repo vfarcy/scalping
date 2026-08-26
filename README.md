@@ -1,263 +1,63 @@
 # Backtest Fibonacci OTE
 
-Ce projet teste une stratégie de scalping basée sur le retracement de Fibonacci **OTE (Optimal Trade Entry)**. Le signal est filtré par une moyenne mobile exponentielle 200, protégé par un Stop Loss, puis géré avec un Take Profit à ratio risque/rendement 1:2 et une sécurisation au Break Even après cassure de structure.
+Ce dépôt contient un backtest en Python de la stratégie Fibonacci OTE sur plusieurs actifs financiers, avec génération de journaux d’exécution détaillés et de statistiques comparatives.
 
-Le script principal est [backtest_real_data.py](backtest_real_data.py). Il compare actuellement l'or (`GC=F`), le Nasdaq (`NQ=F`), EUR/USD (`EURUSD=X`) et le pétrole WTI (`CL=F`) à partir de données Yahoo Finance en 1 minute.
+Le script principal est [backtest_real_data.py](backtest_real_data.py). Il télécharge les données Yahoo Finance en 1 minute, applique la logique OTE + EMA 200 + BOS, puis produit des résultats et des journaux par actif.
 
-## Logique de la stratégie
+## Actifs actuellement testés
 
-### 1. Données et préparation
+- Or : `GC=F`
+- Nasdaq : `NQ=F`
+- EUR/USD : `EURUSD=X`
+- Pétrole WTI : `CL=F`
 
-Pour chaque actif, `download_or_load_data()` tente de télécharger les bougies avec `yfinance`. Une bougie contient au minimum `time`, `open`, `high`, `low` et `close`.
+## État actuel de la stratégie
 
-Yahoo Finance limite généralement l'historique en 1 minute à environ 7 jours. Si le téléchargement échoue et qu'un fichier de secours existe, le script utilise le CSV correspondant à l'actif. Les horaires sont convertis vers `America/New_York` par `normalize_to_market_timezone()` lorsque les timestamps possèdent un fuseau.
+Les résultats récents indiquent que :
 
-### 2. Filtre de tendance EMA 200
+- L’or est le seul actif clairement rentable sur la période testée.
+- EUR/USD est marginalement positif mais très fragile.
+- Nasdaq et pétrole sont négatifs sur la même période.
 
-Le code calcule une EMA 200 sur les clôtures :
+La synthèse détaillée est disponible dans [strategie_fibonacci_ote_synthese.md](strategie_fibonacci_ote_synthese.md).
 
-```text
-EMA actuelle = alpha * clôture actuelle + (1 - alpha) * EMA précédente
-alpha = 2 / (200 + 1)
-```
-
-- Si `close > EMA 200`, seuls les scénarios acheteurs (`BUY`) sont recherchés.
-- Si `close < EMA 200`, seuls les scénarios vendeurs (`SELL`) sont recherchés.
-- Si le cours est exactement égal à l'EMA, aucun des deux scénarios n'est sélectionné.
-
-L'EMA donne un biais directionnel ; elle ne constitue pas à elle seule un signal d'entrée.
-
-### 3. Construction du mouvement impulsif
-
-À chaque bougie, le code observe les `window * 2` bougies précédentes. Avec `window=20`, cela représente au maximum 40 bougies, sans utiliser la bougie en cours pour construire les niveaux.
-
-Pour un achat :
-
-1. `start_point` est le plus bas de la fenêtre.
-2. `end_point` est le plus haut de la fenêtre.
-3. Le plus bas doit apparaître avant le plus haut.
-4. L'amplitude doit dépasser `0,05 %` du prix courant.
-
-Pour une vente, la logique est inversée : le plus haut doit apparaître avant le plus bas.
-
-Cette méthode utilise les extrêmes de la fenêtre récente. Elle est volontairement simple : les colonnes `swing_high` et `swing_low` sont calculées mais les niveaux effectivement utilisés proviennent directement des extrêmes de la fenêtre.
-
-### 4. Entrée OTE à 62 %
-
-L'OTE est le retracement de 62 % du mouvement identifié.
-
-Pour un achat, avec `diff = end_point - start_point` :
-
-```text
-entrée OTE = end_point - 0,62 * diff
-```
-
-Pour une vente, avec `diff = start_point - end_point` :
-
-```text
-entrée OTE = end_point + 0,62 * diff
-```
-
-Le signal est validé lorsque la mèche de la bougie atteint la zone OTE et que la clôture reste du bon côté du Stop Loss :
-
-- achat : `low <= ote_entry` et `close > sl` ;
-- vente : `high >= ote_entry` et `close < sl`.
-
-Le code ne simule pas une entrée immédiate au prix OTE. Il enregistre un signal, puis tente l'entrée à l'ouverture de la bougie suivante. Si cette ouverture est défavorable ou se trouve de l'autre côté du Stop Loss, le signal est ignoré.
-
-### 5. Stop Loss, BOS et Take Profit
-
-Pour un achat :
-
-```text
-SL = start_point - 0,02 * diff
-BOS = end_point
-TP = entrée + (entrée - SL) * risk_reward
-```
-
-Pour une vente :
-
-```text
-SL = start_point + 0,02 * diff
-BOS = end_point
-TP = entrée - (SL - entrée) * risk_reward
-```
-
-Le paramètre `risk_reward=2.0` donne un objectif théorique de deux unités de risque. Le filtre de 2 % est calculé sur l'amplitude du mouvement, et non sur un pourcentage fixe du prix.
-
-Lorsqu'un achat atteint le BOS par son plus haut, ou qu'une vente l'atteint par son plus bas, le SL est déplacé au prix d'entrée et `be_triggered` passe à `True`. Une sortie ultérieure sur ce niveau est classée `BE`.
-
-Si une même bougie touche le SL et le TP, le code vérifie le SL en premier. Cette convention est prudente, mais elle ne permet pas de connaître l'ordre intrabougie réel avec des données en 1 minute.
-
-## Gestion du risque et des coûts
-
-Le capital initial vaut `10 000 €` et le risque par trade vaut par défaut `1 %` du capital disponible. La taille de position est calculée à l'ouverture :
-
-```text
-risque monétaire = capital * risk_per_trade
-coût unitaire = spread + 2 * slippage
-risque par unité = (distance SL + coût unitaire) * point_value
-taille = risque monétaire / risque par unité
-```
-
-Le P&L dépend donc de la distance réelle entre l'entrée, la sortie et le SL. Il n'est plus fixé artificiellement à `-100 €` ou `+200 €`.
-
-Les paramètres de `run_fibonacci_backtest()` sont :
-
-- `risk_per_trade=0.01` : 1 % du capital par trade ;
-- `spread=0.0` : spread exprimé dans l'unité de prix ;
-- `slippage=0.0` : glissement par côté, dans l'unité de prix ;
-- `commission=0.0` : commission fixe déduite à la sortie ;
-- `point_value=1.0` : valeur monétaire d'une unité de variation.
-
-### Cas d'un compte Axi Standard
-
-Sur un compte Axi Standard, la commission séparée est généralement nulle et le coût principal est le spread. Il faut donc conserver `commission=0.0` et renseigner un spread réaliste pour chaque instrument, idéalement mesuré dans l'historique des cotations Axi.
-
-Exemple indicatif pour EUR/USD avec un spread moyen de 1,2 pip :
-
-```python
-{'label': 'EUR/USD', 'ticker': 'EURUSD=X', 'spread': 0.00012, 'slippage': 0.00002}
-```
-
-Cette valeur est seulement un exemple : le spread Axi varie selon la liquidité, l'heure et les annonces. Les tickers Yahoo (`GC=F`, `NQ=F`, `CL=F`) sont des contrats futures et ne reproduisent pas exactement les CFD Axi. Le spread et le `point_value` doivent donc être calibrés séparément pour chaque instrument.
-
-## Déroulement d'un trade
-
-1. Une clôture valide la tendance et les conditions OTE.
-2. Le signal est stocké dans `pending_trade`.
-3. À la bougie suivante, l'ouverture devient le prix d'entrée réel.
-4. Le signal est refusé si l'ouverture est déjà au-delà du SL.
-5. La taille de position est calculée selon le capital et la distance du SL.
-6. Chaque nouvelle bougie vérifie d'abord le Break Even, puis le SL, puis le TP.
-7. Le capital est mis à jour à la clôture du trade.
-8. Une valeur de capital est enregistrée à chaque bougie pour calculer la courbe et le drawdown.
-
-Un seul trade peut être ouvert à la fois. Le code ne prend pas en compte les ordres partiellement exécutés, les positions simultanées, les appels de marge ou les écarts de cotation entre le signal et l'exécution réelle.
-
-## Statistiques produites
-
-- **Win rate** : nombre de `WIN` divisé par le nombre total de trades, BE compris.
-- **Profit factor** : gains bruts divisés par pertes brutes.
-- **Espérance** : P&L moyen par trade.
-- **Drawdown maximum** : baisse maximale de la courbe de capital par rapport à son sommet précédent.
-- **Profit net** : capital final moins capital initial.
-
-Le win rate ne doit pas être interprété seul. Avec un ratio cible 1:2, une stratégie peut être rentable avec moins de 50 % de trades gagnants, mais les frais, le spread et le slippage augmentent le seuil de rentabilité.
-
-L'analyse par session compare les trades ouverts entre 14h30 et 17h00, heure de New York, au reste de la journée. Une session contenant très peu de trades ne permet pas de conclure statistiquement ; un résultat positif sur un seul trade est un signal descriptif, pas une preuve de supériorité.
-
-## Comprendre prix, pips et P&L (lecture du journal)
-
-Dans le journal, les valeurs comme `1.15996` et `1.15943` sont des **prix EUR/USD**, pas des pips.
-
-Exemple sur le trade `#003 SELL` :
-
-```text
-entrée 1.15996, sortie 1.15943
-différence de prix = 1.15996 - 1.15943 = 0.00053
-```
-
-Sur EUR/USD :
-
-- `1 pip = 0.0001`
-- `1 point (pipette) = 0.00001`
-
-Donc `0.00053 = 5.3 pips = 53 points`.
-
-Le P&L ne dépend pas uniquement du mouvement en prix. Il dépend aussi de la taille de position :
-
-```text
-P&L = mouvement (pips) * valeur du pip * taille
-```
-
-Un petit mouvement en prix peut donc produire un P&L élevé si la taille est importante.
-
-## Comparaison pédagogique : WIN, LOSS, BE
-
-Les trois issues possibles d'un trade sont :
-
-- `WIN` : le prix touche le Take Profit (TP).
-- `LOSS` : le prix touche le Stop Loss (SL) avant TP.
-- `BE` : le stop est déplacé au Break Even (prix d'entrée), puis touché.
-
-Exemples tirés du journal :
-
-| Trade | Type | Résultat | Lecture pédagogique |
-|---|---|---|---|
-| `#003` | SELL | WIN `(+183.76 EUR)` | Entrée `1.15996`, sortie TP `1.15943`. Le marché baisse comme prévu. Mouvement `0.00053 = 5.3 pips = 53 points`. |
-| `#002` | BUY | LOSS `(-100.00 EUR)` | Entrée `1.16077`, SL touché à `1.16075`. Le scénario haussier est invalidé rapidement. Le SL limite la perte. |
-| `#004` | SELL | BE `(0.00 EUR)` | Après validation BOS, le SL est remonté au prix d'entrée (`BE déclenché : Oui`). Le marché revient, la position sort à zéro. |
-
-À retenir pour un trader débutant :
-
-1. Le marché bouge en **prix**, mais le risque se pilote mieux en **pips**.
-2. Un bon système n'évite pas les pertes ; il les **contrôle**.
-3. Les sorties `BE` protègent le capital et évitent de transformer un trade prometteur en perte.
-4. La rentabilité vient du couple **gestion du risque + exécution disciplinée**, pas du seul win rate.
-
-## Mini fiche discipline (réel)
-
-Cette checklist sert à reproduire la même discipline que le backtest, sans improvisation.
-
-### 1) Avant entrée
-
-- Vérifier le contexte : bougies propres, pas de bug de flux, spread normal.
-- Vérifier le biais EMA 200 :
-	- `close > EMA200` -> seulement `BUY`.
-	- `close < EMA200` -> seulement `SELL`.
-- Identifier un mouvement impulsif valide (ordre des extrêmes respecté, amplitude suffisante).
-- Tracer l'OTE `0.62` du mouvement.
-- Définir les niveaux avant de cliquer : `entrée`, `SL`, `TP`, `BOS`.
-- Calculer le risque en pips (`distance entrée-SL`) puis la taille (`lot`) pour rester dans le risque max du plan.
-- Vérifier le ratio cible (ici `1:2`) après prise en compte spread/slippage.
-- Check news : éviter une entrée juste avant une annonce macro forte si ce n'est pas prévu dans le plan.
-
-### 2) Pendant le trade
-
-- Ne pas déplacer le SL pour "laisser respirer" un trade perdant.
-- Surveiller la condition BOS.
-- Dès BOS validé, déplacer le SL à BE (prix d'entrée) selon la règle du plan.
-- Laisser vivre le trade : pas de sortie émotionnelle tant qu'aucune règle de sortie n'est touchée.
-- Ne pas sur-exposer : un seul scénario, pas d'empilement de positions impulsif.
-
-### 3) Sortie et post-trade
-
-- Classer la sortie sans biais : `WIN`, `LOSS` ou `BE`.
-- Noter les chiffres clés : entrée, sortie, pips, P&L, heure, contexte.
-- Vérifier l'exécution : la règle a-t-elle été respectée de bout en bout ?
-- Si erreur de discipline : écrire la correction concrète pour le prochain trade.
-- Faire une pause courte après une série de pertes ou un gros gain pour éviter le tilt/euphorie.
-
-Règle d'or :
-
-- Si ce n'est pas dans le plan, ce n'est pas un trade.
-
-## Installation et exécution
+## Dépendances
 
 ```bash
 pip install pandas numpy matplotlib yfinance
-python scalping.py
 ```
 
-Le script télécharge les données des quatre actifs, exécute un backtest indépendant pour chacun, affiche les statistiques dans la console et génère :
+## Exécution
 
-- `backtest_<actif>_performance_<timestamp>.png` ;
-- `journal_execution_<actif>_<timestamp>.log` ;
-- `comparatif_actifs_<timestamp>.png` ;
-- `comparatif_actifs_<timestamp>.log`.
+```bash
+python backtest_real_data.py
+```
 
-Une erreur de téléchargement sur un actif est journalisée ; le script poursuit les autres actifs et exclut l'actif sans résultat du comparatif final.
+Le script génère des journaux du type :
 
-## Personnalisation
+- `journal_execution_or_gold_YYYYMMDD_HHMMSS.log`
+- `journal_execution_eurusd_YYYYMMDD_HHMMSS.log`
+- `journal_execution_nasdaq_YYYYMMDD_HHMMSS.log`
+- `journal_execution_pétrole_wti_YYYYMMDD_HHMMSS.log`
 
-La liste `ASSETS`, dans le bloc `if __name__ == "__main__":` de [scalping.py](scalping.py), permet de modifier les tickers, périodes, fichiers CSV de secours, spreads et slippages.
+## Ce que fait la stratégie
 
-La fonction `run_fibonacci_backtest()` permet aussi de modifier directement `window`, `risk_reward`, `initial_capital`, `risk_per_trade`, `spread`, `commission`, `slippage` et `point_value`.
+- calcul d’une EMA 200 pour le biais de tendance ;
+- détection de mouvement impulsif sur une fenêtre glissante ;
+- entrée sur retracement OTE à 62 % ;
+- stop loss, take profit et sécurisation Break Even au BOS ;
+- calcul du P&L, du win rate, du profit factor, du drawdown et du profit net.
 
-La plage horaire analysée se personnalise avec `analyze_session_performance(trades, session_start=(14, 30), session_end=(17, 0))`.
+## Limites importantes
 
-## Limites à traiter avant une utilisation réelle
+- Les résultats sont encore basés sur une période courte (7 jours en 1 minute).
+- Le spread, le slippage et les frais réels ne sont pas encore calibrés comme dans un environnement de trading réel.
+- Les performances varient fortement selon l’actif ; il faut donc valider chaque instrument séparément avant toute utilisation commerciale.
+
+## Objectif du projet
+
+Le but de ce dépôt est de tester la robustesse de la logique Fibonacci OTE, d’évaluer son comportement par actif, puis de cibler les marchés qui méritent un calibrage plus avancé avant un usage opérationnel.
+
 
 - La fenêtre Yahoo en 1 minute est courte ; il faut tester plusieurs mois avec une source adaptée.
 - Les données Yahoo ne sont pas les cotations bid/ask Axi et ne reproduisent pas exactement le spread du broker.
