@@ -1,305 +1,218 @@
-# Backtest Fibonacci OTE
+# Backtest Order Blocks EUR/USD M1
 
-Ce projet teste une stratégie de scalping basée sur le retracement de Fibonacci **OTE (Optimal Trade Entry)**. Le signal est filtré par une moyenne mobile exponentielle 200, protégé par un Stop Loss, puis géré avec un Take Profit à ratio risque/rendement 1:2 et une sécurisation au Break Even après cassure de structure.
+Ce projet backteste une stratégie d'Order Blocks sur les données historiques EUR/USD en unité M1.
 
-Deux scripts implémentent la même logique de stratégie, sur des sources de données différentes :
+Le script de référence est [backtest_order_blocks_strategy.py](backtest_order_blocks_strategy.py). Il utilise uniquement le fichier CSV local [EURUSD_M1_202605270610_202609011829.csv](EURUSD_M1_202605270610_202609011829.csv) et un capital initial de `10 000 EUR`.
 
-- [backtest_real_data.py](backtest_real_data.py) compare l'or (`GC=F`), le Nasdaq (`NQ=F`), EUR/USD (`EURUSD=X`) et le pétrole WTI (`CL=F`) à partir de données Yahoo Finance en 1 minute.
-- [backtest_eurusd_m1.py](backtest_eurusd_m1.py) exécute le même backtest sur un seul actif, EUR/USD, à partir de l'export MetaTrader 5 local [EURUSD_M1_202605270610_202609011829.csv](EURUSD_M1_202605270610_202609011829.csv) (pas de téléchargement, pas de comparaison multi-actifs).
+La spécification détaillée de la stratégie est disponible dans [strategie_order_blocks_specification.md](strategie_order_blocks_specification.md).
 
-Les sections suivantes décrivent la logique commune aux deux scripts ; les différences propres à `backtest_eurusd_m1.py` sont signalées explicitement.
+Le dépôt contient deux scripts Python. Ils ne produisent pas des résultats comparables : ils appliquent deux modèles différents et doivent être exécutés séparément.
 
-## Logique de la stratégie
+## Scripts Python
 
-### 1. Données et préparation
+### `backtest_order_blocks_strategy.py`
 
-Dans `backtest_real_data.py`, `download_or_load_data()` tente de télécharger les bougies avec `yfinance` pour chaque actif. Une bougie contient au minimum `time`, `open`, `high`, `low` et `close`. Yahoo Finance limite généralement l'historique en 1 minute à environ 7 jours ; si le téléchargement échoue et qu'un fichier de secours existe, le script utilise le CSV correspondant à l'actif. Les horaires sont ensuite convertis vers `America/New_York` par `normalize_to_market_timezone()` lorsque les timestamps possèdent un fuseau.
+Script de référence du projet. Il applique la stratégie Order Blocks 5 étoiles au CSV EUR/USD M1 local, avec un capital initial de `10 000 EUR`. Son fonctionnement et ses sorties sont décrits dans les sections ci-dessous.
 
-Dans `backtest_eurusd_m1.py`, `load_mt5_csv()` charge directement l'export MetaTrader 5 (colonnes tabulées `<DATE> <TIME> <OPEN> <HIGH> <LOW> <CLOSE> <TICKVOL> <VOL> <SPREAD>`) et fusionne `DATE`+`TIME` en une colonne `time` unique. **Il n'y a pas de conversion de fuseau horaire** : les horodatages du CSV MT5 sont supposés déjà exprimés en heure de New York, ce qui n'est pas garanti (un export MT5 est en général en heure serveur du broker). Cette hypothèse doit être vérifiée avant d'interpréter l'analyse par session horaire.
+### `backtest_real_data.py`
 
-### 2. Filtre de tendance EMA 200
+Script complémentaire de comparaison multi-actifs. Il applique l'ancien modèle Fibonacci OTE avec filtre EMA 200 et tente de télécharger des données via `yfinance` pour :
 
-Le code calcule une EMA 200 sur les clôtures :
+- Or (`GC=F`) ;
+- Nasdaq (`NQ=F`) ;
+- EUR/USD (`EURUSD=X`) ;
+- Pétrole WTI (`CL=F`).
 
-```text
-EMA actuelle = alpha * clôture actuelle + (1 - alpha) * EMA précédente
-alpha = 2 / (200 + 1)
+Il normalise les timestamps lorsque le fournisseur fournit un fuseau horaire, exécute un backtest indépendant par actif, puis génère un comparatif. En cas d'échec du téléchargement, il utilise un CSV de secours si celui-ci existe. Ce script n'utilise pas le CSV EUR/USD M1 de référence et ses résultats ne doivent pas être mélangés à ceux du script Order Blocks.
+
+Exécution :
+
+```powershell
+mamba run -n scalping_env python .\backtest_real_data.py
 ```
 
-- Si `close > EMA 200`, seuls les scénarios acheteurs (`BUY`) sont recherchés.
-- Si `close < EMA 200`, seuls les scénarios vendeurs (`SELL`) sont recherchés.
-- Si le cours est exactement égal à l'EMA, aucun des deux scénarios n'est sélectionné.
+Ce script peut nécessiter un accès réseau et la dépendance `yfinance`, contrairement au backtest local Order Blocks.
 
-L'EMA donne un biais directionnel ; elle ne constitue pas à elle seule un signal d'entrée.
+## Environnement
 
-### 3. Construction du mouvement impulsif
+L'environnement Python est défini dans [environment.yml](environment.yml).
 
-À chaque bougie, le code observe les `window * 2` bougies précédentes. Avec `window=20`, cela représente au maximum 40 bougies, sans utiliser la bougie en cours pour construire les niveaux.
+Avec Mamba :
 
-Pour un achat :
-
-1. `start_point` est le plus bas de la fenêtre.
-2. `end_point` est le plus haut de la fenêtre.
-3. Le plus bas doit apparaître avant le plus haut.
-4. L'amplitude doit dépasser `0,05 %` du prix courant.
-
-Pour une vente, la logique est inversée : le plus haut doit apparaître avant le plus bas.
-
-Cette méthode utilise directement les extrêmes de la fenêtre récente ; elle est volontairement simple. Dans `backtest_real_data.py`, les colonnes `swing_high` et `swing_low` sont calculées mais non utilisées (les niveaux proviennent des extrêmes de la fenêtre) ; ce code mort a été retiré de `backtest_eurusd_m1.py` sans changer le comportement.
-
-### 4. Entrée OTE à 62 %
-
-L'OTE est le retracement de 62 % du mouvement identifié.
-
-Pour un achat, avec `diff = end_point - start_point` :
-
-```text
-entrée OTE = end_point - 0,62 * diff
-```
-
-Pour une vente, avec `diff = start_point - end_point` :
-
-```text
-entrée OTE = end_point + 0,62 * diff
-```
-
-Le signal est validé lorsque la mèche de la bougie atteint la zone OTE et que la clôture reste du bon côté du Stop Loss :
-
-- achat : `low <= ote_entry` et `close > sl` ;
-- vente : `high >= ote_entry` et `close < sl`.
-
-Le code ne simule pas une entrée immédiate au prix OTE. Il enregistre un signal, puis tente l'entrée à l'ouverture de la bougie suivante. Si cette ouverture est défavorable ou se trouve de l'autre côté du Stop Loss, le signal est ignoré.
-
-### 5. Stop Loss, BOS et Take Profit
-
-Pour un achat :
-
-```text
-SL = start_point - 0,02 * diff
-BOS = end_point
-TP = entrée + (entrée - SL) * risk_reward
-```
-
-Pour une vente :
-
-```text
-SL = start_point + 0,02 * diff
-BOS = end_point
-TP = entrée - (SL - entrée) * risk_reward
-```
-
-Le paramètre `risk_reward=2.0` donne un objectif théorique de deux unités de risque. Le filtre de 2 % est calculé sur l'amplitude du mouvement, et non sur un pourcentage fixe du prix.
-
-Lorsqu'un achat atteint le BOS par son plus haut, ou qu'une vente l'atteint par son plus bas, le SL est déplacé au prix d'entrée et `be_triggered` passe à `True`. Une sortie ultérieure sur ce niveau est classée `BE`.
-
-Si une même bougie touche le SL et le TP, le code vérifie le SL en premier. Cette convention est prudente, mais elle ne permet pas de connaître l'ordre intrabougie réel avec des données en 1 minute.
-
-## Gestion du risque et des coûts
-
-Le capital initial vaut `10 000 €` et le risque par trade vaut par défaut `1 %` du capital disponible. La taille de position est calculée à l'ouverture :
-
-```text
-risque monétaire = capital * risk_per_trade
-coût unitaire = spread + 2 * slippage
-risque par unité = (distance SL + coût unitaire) * point_value
-taille = risque monétaire / risque par unité
-```
-
-Le P&L dépend donc de la distance réelle entre l'entrée, la sortie et le SL. Il n'est plus fixé artificiellement à `-100 €` ou `+200 €`.
-
-Dans `backtest_eurusd_m1.py`, ce calcul a été corrigé pour éviter un double comptage du spread : la moitié du spread est désormais appliquée directement sur le prix d'entrée (achat à l'ask, vente au bid), l'autre moitié restant appliquée à la sortie comme avant. La formule de taille de position devient donc :
-
-```text
-coût unitaire = 2 * slippage
-risque par unité = (distance SL + coût unitaire) * point_value
-```
-
-le spread étant déjà reflété dans le prix d'entrée utilisé pour calculer `distance SL`.
-
-Les paramètres de `run_fibonacci_backtest()` sont :
-
-- `risk_per_trade=0.01` : 1 % du capital par trade ;
-- `spread=0.0` : spread exprimé dans l'unité de prix ;
-- `slippage=0.0` : glissement par côté, dans l'unité de prix ;
-- `commission=0.0` : commission fixe déduite à la sortie ;
-- `point_value=1.0` : valeur monétaire d'une unité de variation.
-
-### Cas d'un compte Axi Standard
-
-Sur un compte Axi Standard, la commission séparée est généralement nulle et le coût principal est le spread. Il faut donc conserver `commission=0.0` et renseigner un spread réaliste pour chaque instrument, idéalement mesuré dans l'historique des cotations Axi.
-
-Exemple indicatif pour EUR/USD avec un spread moyen de 1,2 pip :
-
-```python
-{'label': 'EUR/USD', 'ticker': 'EURUSD=X', 'spread': 0.00012, 'slippage': 0.00002}
-```
-
-Cette valeur est seulement un exemple : le spread Axi varie selon la liquidité, l'heure et les annonces. Les tickers Yahoo (`GC=F`, `NQ=F`, `CL=F`) sont des contrats futures et ne reproduisent pas exactement les CFD Axi. Le spread et le `point_value` doivent donc être calibrés séparément pour chaque instrument.
-
-## Déroulement d'un trade
-
-1. Une clôture valide la tendance et les conditions OTE.
-2. Le signal est stocké dans `pending_trade`.
-3. À la bougie suivante, l'ouverture devient le prix d'entrée réel.
-4. Le signal est refusé si l'ouverture est déjà au-delà du SL.
-5. La taille de position est calculée selon le capital et la distance du SL.
-6. Chaque nouvelle bougie vérifie d'abord le Break Even, puis le SL, puis le TP.
-7. Le capital est mis à jour à la clôture du trade.
-8. Une valeur de capital est enregistrée à chaque bougie pour calculer la courbe et le drawdown.
-
-Un seul trade peut être ouvert à la fois. Le code ne prend pas en compte les ordres partiellement exécutés, les positions simultanées, les appels de marge ou les écarts de cotation entre le signal et l'exécution réelle.
-
-## Statistiques produites
-
-- **Win rate** : nombre de `WIN` divisé par le nombre total de trades, BE compris.
-- **Profit factor** : gains bruts divisés par pertes brutes.
-- **Espérance** : P&L moyen par trade.
-- **Drawdown maximum** : baisse maximale de la courbe de capital par rapport à son sommet précédent.
-- **Profit net** : capital final moins capital initial.
-
-Le win rate ne doit pas être interprété seul. Avec un ratio cible 1:2, une stratégie peut être rentable avec moins de 50 % de trades gagnants, mais les frais, le spread et le slippage augmentent le seuil de rentabilité.
-
-L'analyse par session compare les trades ouverts entre 14h30 et 17h00, heure de New York, au reste de la journée. Une session contenant très peu de trades ne permet pas de conclure statistiquement ; un résultat positif sur un seul trade est un signal descriptif, pas une preuve de supériorité.
-
-## Comprendre prix, pips et P&L (lecture du journal)
-
-Dans le journal, les valeurs comme `1.15996` et `1.15943` sont des **prix EUR/USD**, pas des pips.
-
-Exemple sur le trade `#003 SELL` :
-
-```text
-entrée 1.15996, sortie 1.15943
-différence de prix = 1.15996 - 1.15943 = 0.00053
-```
-
-Sur EUR/USD :
-
-- `1 pip = 0.0001`
-- `1 point (pipette) = 0.00001`
-
-Donc `0.00053 = 5.3 pips = 53 points`.
-
-Le P&L ne dépend pas uniquement du mouvement en prix. Il dépend aussi de la taille de position :
-
-```text
-P&L = mouvement (pips) * valeur du pip * taille
-```
-
-Un petit mouvement en prix peut donc produire un P&L élevé si la taille est importante.
-
-## Comparaison pédagogique : WIN, LOSS, BE
-
-Les trois issues possibles d'un trade sont :
-
-- `WIN` : le prix touche le Take Profit (TP).
-- `LOSS` : le prix touche le Stop Loss (SL) avant TP.
-- `BE` : le stop est déplacé au Break Even (prix d'entrée), puis touché.
-
-Exemples tirés du journal :
-
-| Trade | Type | Résultat | Lecture pédagogique |
-|---|---|---|---|
-| `#003` | SELL | WIN `(+183.76 EUR)` | Entrée `1.15996`, sortie TP `1.15943`. Le marché baisse comme prévu. Mouvement `0.00053 = 5.3 pips = 53 points`. |
-| `#002` | BUY | LOSS `(-100.00 EUR)` | Entrée `1.16077`, SL touché à `1.16075`. Le scénario haussier est invalidé rapidement. Le SL limite la perte. |
-| `#004` | SELL | BE `(0.00 EUR)` | Après validation BOS, le SL est remonté au prix d'entrée (`BE déclenché : Oui`). Le marché revient, la position sort à zéro. |
-
-À retenir pour un trader débutant :
-
-1. Le marché bouge en **prix**, mais le risque se pilote mieux en **pips**.
-2. Un bon système n'évite pas les pertes ; il les **contrôle**.
-3. Les sorties `BE` protègent le capital et évitent de transformer un trade prometteur en perte.
-4. La rentabilité vient du couple **gestion du risque + exécution disciplinée**, pas du seul win rate.
-
-## Mini fiche discipline (réel)
-
-Cette checklist sert à reproduire la même discipline que le backtest, sans improvisation.
-
-### 1) Avant entrée
-
-- Vérifier le contexte : bougies propres, pas de bug de flux, spread normal.
-- Vérifier le biais EMA 200 :
-	- `close > EMA200` -> seulement `BUY`.
-	- `close < EMA200` -> seulement `SELL`.
-- Identifier un mouvement impulsif valide (ordre des extrêmes respecté, amplitude suffisante).
-- Tracer l'OTE `0.62` du mouvement.
-- Définir les niveaux avant de cliquer : `entrée`, `SL`, `TP`, `BOS`.
-- Calculer le risque en pips (`distance entrée-SL`) puis la taille (`lot`) pour rester dans le risque max du plan.
-- Vérifier le ratio cible (ici `1:2`) après prise en compte spread/slippage.
-- Check news : éviter une entrée juste avant une annonce macro forte si ce n'est pas prévu dans le plan.
-
-### 2) Pendant le trade
-
-- Ne pas déplacer le SL pour "laisser respirer" un trade perdant.
-- Surveiller la condition BOS.
-- Dès BOS validé, déplacer le SL à BE (prix d'entrée) selon la règle du plan.
-- Laisser vivre le trade : pas de sortie émotionnelle tant qu'aucune règle de sortie n'est touchée.
-- Ne pas sur-exposer : un seul scénario, pas d'empilement de positions impulsif.
-
-### 3) Sortie et post-trade
-
-- Classer la sortie sans biais : `WIN`, `LOSS` ou `BE`.
-- Noter les chiffres clés : entrée, sortie, pips, P&L, heure, contexte.
-- Vérifier l'exécution : la règle a-t-elle été respectée de bout en bout ?
-- Si erreur de discipline : écrire la correction concrète pour le prochain trade.
-- Faire une pause courte après une série de pertes ou un gros gain pour éviter le tilt/euphorie.
-
-Règle d'or :
-
-- Si ce n'est pas dans le plan, ce n'est pas un trade.
-
-## Installation et exécution
-
-L'environnement `mamba`/`conda` utilisé pour développer et tester ce projet est décrit dans [environment.yml](environment.yml). Pour le recréer :
-
-```bash
+```powershell
 mamba env create -f environment.yml
 mamba activate scalping_env
 ```
 
-Sans `mamba`, les dépendances peuvent aussi être installées directement avec `pip` :
+Si l'environnement existe déjà :
 
-```bash
-pip install pandas numpy matplotlib yfinance
-python backtest_real_data.py
+```powershell
+mamba activate scalping_env
 ```
 
-Ce script télécharge les données des quatre actifs, exécute un backtest indépendant pour chacun, affiche les statistiques dans la console et génère :
+Dépendances principales :
 
-- `backtest_<actif>_performance_<timestamp>.png` ;
-- `journal_execution_<actif>_<timestamp>.log` ;
-- `comparatif_actifs_<timestamp>.png` ;
-- `comparatif_actifs_<timestamp>.log`.
+- Python 3.11 ;
+- pandas ;
+- numpy.
 
-Une erreur de téléchargement sur un actif est journalisée ; le script poursuit les autres actifs et exclut l'actif sans résultat du comparatif final.
+## Exécution
 
-Pour le backtest EUR/USD sur données CSV locales (pas de dépendance `yfinance`) :
+Depuis le dossier du projet :
 
-```bash
-pip install pandas numpy matplotlib
-python backtest_eurusd_m1.py
+```powershell
+mamba run -n scalping_env python .\backtest_order_blocks_strategy.py
 ```
 
-Ce script génère `backtest_eurusd_performance_<timestamp>.png` et `journal_execution_eurusd_<timestamp>.log`.
+Le seuil minimal est de 3 étoiles par défaut. Pour le modifier :
 
-## Personnalisation
+```powershell
+mamba run -n scalping_env python .\backtest_order_blocks_strategy.py --min-stars 2
+mamba run -n scalping_env python .\backtest_order_blocks_strategy.py --min-stars 4
+mamba run -n scalping_env python .\backtest_order_blocks_strategy.py --min-stars 5
+```
 
-La liste `ASSETS`, dans le bloc `if __name__ == "__main__":` de [backtest_real_data.py](backtest_real_data.py), permet de modifier les tickers, périodes, fichiers CSV de secours, spreads et slippages.
+Le chemin du CSV peut être remplacé avec `--csv` :
 
-La fonction `run_fibonacci_backtest()` permet aussi de modifier directement `window`, `risk_reward`, `initial_capital`, `risk_per_trade`, `spread`, `commission`, `slippage` et `point_value`.
+```powershell
+mamba run -n scalping_env python .\backtest_order_blocks_strategy.py --csv .\EURUSD_M1_202605270610_202609011829.csv
+```
 
-La plage horaire analysée se personnalise avec `analyze_session_performance(trades, session_start=(14, 30), session_end=(17, 0))`.
+Un chemin de log explicite peut être fourni avec `--log` :
 
-## Limites à traiter avant une utilisation réelle
+```powershell
+mamba run -n scalping_env python .\backtest_order_blocks_strategy.py --log .\resultat_order_blocks.log
+```
 
-- La fenêtre Yahoo en 1 minute est courte ; il faut tester plusieurs mois avec une source adaptée.
-- Les données Yahoo ne sont pas les cotations bid/ask Axi et ne reproduisent pas exactement le spread du broker.
-- Dans `backtest_eurusd_m1.py`, le fuseau horaire du CSV MT5 n'est pas vérifié : si le broker exporte en heure serveur plutôt qu'en heure de New York, l'analyse par session horaire (14h30-17h00) compare les mauvaises tranches.
-- Toujours dans `backtest_eurusd_m1.py`, un spread moyen unique (calculé sur toute la période) est appliqué à chaque trade, alors que le CSV contient un spread réel par bougie qui varie selon la liquidité et les annonces.
-- Le backtest ne connaît pas l'ordre réel des mouvements à l'intérieur d'une bougie.
-- Le `point_value` par défaut vaut `1.0` et doit être adapté au contrat ou à l'unité négociée.
-- Les coûts doivent être renseignés pour obtenir un résultat net crédible.
-- La taille peut devenir excessive si la distance du SL est très faible ; une taille maximale et une distance minimale devraient être ajoutées.
-- Il faut séparer les données d'optimisation et de validation afin de limiter le surajustement.
-- Les résultats passés ne garantissent pas les résultats futurs.
+## Règles appliquées
 
-Ce projet est fourni à des fins d'analyse et d'apprentissage uniquement. Il ne constitue pas un conseil en investissement.
+### Order Block
+
+- OB haussier : dernière bougie baissière avant deux bougies haussières ;
+- OB baissier : dernière bougie haussière avant deux bougies baissières ;
+- confirmation après la clôture des deux bougies d'impulsion ;
+- zone de l'OB : corps de la bougie, entre ouverture et clôture ;
+- corps minimal de la première bougie d'impulsion : `2 pips` ;
+- cassure minimale du niveau de l'OB : `2 pips`.
+
+### Étoiles
+
+Un OB reçoit une étoile pour chacun des critères suivants :
+
+1. imbalance/FVG d'au moins `0,5 pip` ;
+2. prise de liquidité sur les `6` bougies précédentes ;
+3. OB situé à l'extrême de la structure récente, sur une fenêtre de `20` bougies ;
+4. zone intacte au moment de la confirmation ;
+5. formation pendant une session volatile européenne ou américaine.
+
+Seuls les OB dont le score est supérieur ou égal à `--min-stars` sont tradables.
+
+La détection est causale : le statut non mitigé n'utilise pas les bougies futures jusqu'à la fin du fichier. Après confirmation, les retouches sont vérifiées une bougie à la fois.
+
+### Entrée
+
+Une position exige toutes les conditions suivantes :
+
+1. un OB valide ayant au moins le seuil d'étoiles demandé ;
+2. une première retouche de sa zone ;
+3. une réaction dans le sens de l'OB : englobante ou marteau/pin bar ;
+4. retouche du niveau Fibonacci `62 %` du mouvement impulsif associé ;
+5. aucune position déjà ouverte.
+
+Le signal est détecté à la clôture de la bougie de réaction et l'entrée est exécutée à l'ouverture de la bougie suivante.
+
+Le Fibonacci ne remplace pas l'Order Block : il sert uniquement à choisir le moment de l'entrée.
+
+### Gestion de la position
+
+- risque par trade : `1 %` du capital courant ;
+- capital initial : `10 000 EUR` ;
+- BUY : Stop Loss sur la limite basse du corps de l'OB ;
+- SELL : Stop Loss sur la limite haute du corps de l'OB ;
+- Take Profit : ratio risque/rendement `1:2` ;
+- break-even : déplacement du Stop Loss à l'entrée après un mouvement favorable de `1R` ;
+- une position encore ouverte à la fin du CSV est clôturée au dernier cours et classée `END`.
+
+Le spread est lu dans la colonne `<SPREAD>` du CSV et converti en prix avec `1 point = 0,00001` pour EUR/USD. Le slippage et la commission sont nuls par défaut dans ce script.
+
+## Format du CSV
+
+Le fichier doit être un export MetaTrader 5 séparé par tabulations avec au minimum les colonnes :
+
+```text
+<DATE> <TIME> <OPEN> <HIGH> <LOW> <CLOSE> <SPREAD>
+```
+
+Les colonnes sont normalisées en minuscules. Les champs `DATE` et `TIME` sont combinés dans la colonne `time`.
+
+Les horaires du CSV sont utilisés tels quels. Le script ne convertit pas automatiquement le fuseau horaire. Les sessions européennes et américaines doivent donc être interprétées dans le fuseau réellement utilisé par l'export MT5.
+
+## Fichiers générés
+
+Chaque exécution produit un journal nommé :
+
+```text
+backtest_order_blocks_YYYYMMDD_HHMMSS.log
+```
+
+Le journal contient :
+
+- le chemin du CSV utilisé ;
+- le capital initial ;
+- les paramètres du run ;
+- le nombre d'Order Blocks retenus ;
+- le détail de chaque trade ;
+- le résultat `WIN`, `LOSS`, `BE` ou `END` ;
+- le P&L de chaque position ;
+- la répartition de la volatilité de `00h` à `23h` ;
+- l'amplitude moyenne et médiane par heure ;
+- la part de chaque heure dans l'amplitude totale ;
+- le bilan financier final.
+
+Le résumé final est également imprimé dans la console :
+
+```text
+=== RESULTAT FINAL UNIQUE ===
+CSV source          : ...
+Capital initial     : 10000.00 EUR
+Order Blocks retenus: ...
+Trades clôturés     : ...
+WIN / LOSS / BE / END : ...
+Capital final       : ... EUR
+Profit net          : ... EUR
+Drawdown maximum    : ...%
+Journal             : ...
+```
+
+## Validation
+
+Compiler le script :
+
+```powershell
+mamba run -n scalping_env python -m py_compile .\backtest_order_blocks_strategy.py
+```
+
+Puis exécuter le backtest :
+
+```powershell
+mamba run -n scalping_env python .\backtest_order_blocks_strategy.py --min-stars 3
+```
+
+Les résultats ne doivent être comparés qu'entre exécutions utilisant le même CSV, les mêmes paramètres et le même capital initial. Les anciens logs ou sorties provenant d'autres scripts ne sont pas des résultats de référence.
+
+## Limites
+
+- Les données M1 ne permettent pas de connaître l'ordre exact des mouvements à l'intérieur d'une bougie ;
+- le fuseau horaire du CSV doit être vérifié manuellement ;
+- le backtest utilise le spread historique de la bougie du signal, mais ne modélise pas toutes les conditions d'exécution d'un broker ;
+- quatre trades ou quelques dizaines de trades ne suffisent pas à établir la robustesse d'une stratégie ;
+- les résultats historiques ne garantissent aucun résultat futur ;
+- ce projet est destiné à l'analyse et à l'apprentissage, pas à constituer un conseil financier.
+
+## Fichiers principaux
+
+- [backtest_order_blocks_strategy.py](backtest_order_blocks_strategy.py) : script de backtest de référence ;
+- [backtest_real_data.py](backtest_real_data.py) : comparaison multi-actifs basée sur le modèle Fibonacci OTE/EMA 200 ;
+- [strategie_order_blocks_specification.md](strategie_order_blocks_specification.md) : règles détaillées de la stratégie ;
+- [EURUSD_M1_202605270610_202609011829.csv](EURUSD_M1_202605270610_202609011829.csv) : données EUR/USD M1 utilisées ;
+- [environment.yml](environment.yml) : environnement Python du projet.
