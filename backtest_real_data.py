@@ -296,6 +296,55 @@ def plot_and_save_results(df, trades, filename="backtest_real_performance.png", 
     plt.close()
     print(f"Graphique sauvegardé sous : {output_path}")
 
+def plot_trade_levels(df, trades, filename="backtest_trade_levels.png", asset_label="Or (Gold)", max_trades=200):
+    """
+    Trace le prix de clôture et, pour chaque trade pris, les niveaux d'entrée,
+    de Stop Loss, de Take Profit et de BOS entre l'heure d'entrée et de sortie.
+    """
+    if not trades:
+        print("Aucun trade : graphique des niveaux non généré.")
+        return None
+
+    plotted_trades = trades[:max_trades]
+    if len(trades) > max_trades:
+        print(f"Note : seuls les {max_trades} premiers trades sur {len(trades)} sont affichés sur le graphique des niveaux (lisibilité).")
+
+    from matplotlib.lines import Line2D
+    plt.figure(figsize=(14, 7))
+    plt.plot(df['time'], df['close'], color='#333333', linewidth=0.7, alpha=0.6, zorder=1)
+
+    color_map = {'WIN': '#2ca02c', 'LOSS': '#d62728', 'BE': '#1f77b4'}
+    for t in plotted_trades:
+        color = color_map.get(t['result'], '#888888')
+        entry_time, exit_time = t['entry_time'], t['exit_time']
+        marker = '^' if t['type'] == 'BUY' else 'v'
+        plt.scatter(entry_time, t['entry_price'], marker=marker, color=color, s=35, zorder=3)
+        plt.scatter(exit_time, t['exit_price'], marker='x', color=color, s=30, zorder=3)
+        plt.hlines(t['initial_sl'], entry_time, exit_time, colors='#d62728', linestyles='dashed', linewidth=0.8, alpha=0.7, zorder=2)
+        plt.hlines(t['tp'], entry_time, exit_time, colors='#2ca02c', linestyles='dashed', linewidth=0.8, alpha=0.7, zorder=2)
+        plt.hlines(t['bos'], entry_time, exit_time, colors='#9467bd', linestyles='dotted', linewidth=0.8, alpha=0.7, zorder=2)
+
+    legend_elements = [
+        Line2D([0], [0], color='#333333', lw=1, label='Prix (clôture)'),
+        Line2D([0], [0], marker='^', color='w', markerfacecolor='gray', markersize=8, label='Entrée BUY'),
+        Line2D([0], [0], marker='v', color='w', markerfacecolor='gray', markersize=8, label='Entrée SELL'),
+        Line2D([0], [0], marker='x', color='gray', lw=0, label='Sortie'),
+        Line2D([0], [0], color='#d62728', lw=1.2, linestyle='dashed', label='Stop Loss'),
+        Line2D([0], [0], color='#2ca02c', lw=1.2, linestyle='dashed', label='Take Profit'),
+        Line2D([0], [0], color='#9467bd', lw=1.2, linestyle='dotted', label='BOS'),
+    ]
+    plt.legend(handles=legend_elements, loc='upper left', fontsize=8)
+    plt.title(f"Niveaux des trades — {asset_label} (entrée, SL, TP, BOS)", fontsize=13, fontweight='bold')
+    plt.xlabel("Date", fontsize=11)
+    plt.ylabel("Prix", fontsize=11)
+    plt.grid(True, linestyle="--", alpha=0.3)
+    plt.tight_layout()
+    output_path = os.path.join(OUTPUT_DIR, filename)
+    plt.savefig(output_path, dpi=300, bbox_inches='tight')
+    plt.close()
+    print(f"Graphique des niveaux de trades sauvegardé sous : {output_path}")
+    return output_path
+
 def analyze_performance(df, trades, initial_capital=10000.0):
     """
     Calcule des indicateurs de performance avancés, affiche une interprétation
@@ -614,6 +663,7 @@ if __name__ == "__main__":
                 spread=asset['spread'], slippage=asset['slippage']
             )
             plot_and_save_results(df_result, trades, filename=f"backtest_{slug}_performance_{run_timestamp}.png", asset_label=asset['label'])
+            plot_trade_levels(df_result, trades, filename=f"backtest_{slug}_trade_levels_{run_timestamp}.png", asset_label=asset['label'])
             stats = analyze_performance(df_result, trades)
             session_analysis = analyze_session_performance(trades)
             generate_execution_log(meta, trades, stats, session_analysis=session_analysis,

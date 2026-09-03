@@ -1,0 +1,2 @@
+block_id,direction,signal_time,entry_time,exit_time,entry,initial_sl,tp,exit,lots,risk_pips,gross_pips,net_pips,pnl_usd,reason,capital_after
+14,short,2026-07-10 18:09:00,2026-07-10 18:10:00,2026-07-10 18:16:00,1.14252,1.14309,1.14138,1.1432,1.12,5.699999999999594,-6.800000000000139,-7.800000000000139,-87.36000000000158,SL,9912.639999999998

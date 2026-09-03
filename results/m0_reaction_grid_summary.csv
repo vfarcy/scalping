@@ -1,0 +1,13 @@
+model,impulses_detected,blocks_created,blocks_touched,signals_confirmed,reaction_rejections,entry_rejections,trades_closed,wins,losses,break_even,win_rate_pct,profit_factor,expectancy_usd,net_profit_usd,final_capital_usd,max_drawdown_pct
+"A - impulse, first retest and reaction only",21,21,17,1,16,0,1,0,1,0,0.0,0.0,-87.36000000000158,-87.36000000000158,9912.639999999998,-0.873600000000024
+"A - impulse, first retest and reaction only",21,21,17,0,17,0,0,0,0,0,0.0,,0.0,0.0,10000.0,0.0
+"A - impulse, first retest and reaction only",21,21,17,0,17,0,0,0,0,0,0.0,,0.0,0.0,10000.0,0.0
+"A - impulse, first retest and reaction only",21,21,17,0,17,0,0,0,0,0,0.0,,0.0,0.0,10000.0,0.0
+"A - impulse, first retest and reaction only",21,21,17,0,17,0,0,0,0,0,0.0,,0.0,0.0,10000.0,0.0
+"A - impulse, first retest and reaction only",21,21,17,0,17,0,0,0,0,0,0.0,,0.0,0.0,10000.0,0.0
+"A - impulse, first retest and reaction only",21,21,17,0,17,0,0,0,0,0,0.0,,0.0,0.0,10000.0,0.0
+"A - impulse, first retest and reaction only",21,21,17,0,17,0,0,0,0,0,0.0,,0.0,0.0,10000.0,0.0
+"A - impulse, first retest and reaction only",21,21,17,0,17,0,0,0,0,0,0.0,,0.0,0.0,10000.0,0.0
+"A - impulse, first retest and reaction only",21,21,17,0,17,0,0,0,0,0,0.0,,0.0,0.0,10000.0,0.0
+"A - impulse, first retest and reaction only",21,21,17,0,17,0,0,0,0,0,0.0,,0.0,0.0,10000.0,0.0
+"A - impulse, first retest and reaction only",21,21,17,0,17,0,0,0,0,0,0.0,,0.0,0.0,10000.0,0.0

@@ -1,0 +1,4 @@
+model,impulses_detected,blocks_created,blocks_touched,signals_confirmed,reaction_rejections,entry_rejections,trades_closed,wins,losses,break_even,win_rate_pct,profit_factor,expectancy_usd,net_profit_usd,final_capital_usd,max_drawdown_pct
+"M0 - directional impulse, first retest and reaction only",3555,3555,2003,106,1897,0,106,16,90,24,15.09433962264151,0.3077807276791812,-33.138740566041896,-3512.7065000004413,6487.293499999558,-35.372665000003934
+"M0 - directional impulse, first retest and reaction only",3555,3555,2003,169,1834,0,169,30,139,43,17.75147928994083,0.3755991118915932,-25.721485207104518,-4346.9310000006635,5653.068999999337,-43.424110000006166
+"M0 - directional impulse, first retest and reaction only",3555,3555,2003,190,1812,0,190,35,155,46,18.421052631578945,0.39888156148596754,-24.591442105266985,-4672.374000000727,5327.625999999272,-46.638340000007254
